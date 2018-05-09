@@ -132,7 +132,7 @@ func (ctrd *Ctrd) Cleanup() error {
 }
 
 // PullImage prepares all images using by docker containers,
-// that will be used to create new pouch containerd.
+// that will be used to create new pouch container.
 func (ctrd *Ctrd) PullImage(ctx context.Context, imageName string) error {
 	ctx = leases.WithLease(ctx, ctrd.lease.ID())
 
