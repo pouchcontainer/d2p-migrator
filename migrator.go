@@ -432,6 +432,12 @@ func (p *PouchMigrator) PostMigrate() error {
 		}
 	}
 
+	// We must first stop the docker before remove it
+	logrus.Infof("Start to stop docker: %s", p.dockerPkg)
+	if err := utils.ExecCommand("systemctl", "stop", "docker"); err != nil {
+		return fmt.Errorf("failed to stop docker: %v", err)
+	}
+
 	logrus.Infof("Start to uninstall docker: %s", p.dockerPkg)
 	if err := utils.ExecCommand("yum", "remove", "-y", p.dockerPkg); err != nil {
 		return fmt.Errorf("failed to uninstall docker: %v", err)
