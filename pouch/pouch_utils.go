@@ -1,10 +1,11 @@
-package main
+package pouch
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/alibaba/d2p-migrator/utils"
+	"github.com/pouchcontainer/d2p-migrator/utils"
+
 	pouchtypes "github.com/alibaba/pouch/apis/types"
 	dockertypes "github.com/docker/engine-api/types"
 	containertypes "github.com/docker/engine-api/types/container"
@@ -99,6 +100,21 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		return nil, err
 	}
 
+	// Only works for alidocker
+	if mode, exists := envs["ali_run_mode"]; exists {
+		if mode != "vm" {
+			oldRunMode := fmt.Sprintf("ali_run_mode=%s", mode)
+			newRunMode := "ali_run_mode=vm"
+
+			for i, v := range config.Env {
+				if v == oldRunMode {
+					config.Env[i] = newRunMode
+					break
+				}
+			}
+		}
+	}
+
 	// HostConfig
 	hostconfig, err := toHostConfig(meta.HostConfig)
 	if err != nil {
@@ -121,8 +137,8 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		}
 	}
 
-	ldBind := ""
 	// TODO: Only works in alidocker
+	ldBind := ""
 	if path, exists := envs["LD_PRELOAD"]; exists {
 		if path != "" {
 			ldBind = fmt.Sprintf("%s:%s:ro", path, path)

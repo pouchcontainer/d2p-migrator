@@ -27,6 +27,12 @@
 			"revisionTime": "2018-05-13T11:46:48Z"
 		},
 		{
+			"checksumSHA1": "W+QL9yF68QBn2Ee10TZwmgLZ378=",
+			"path": "github.com/alibaba/pouch/client",
+			"revision": "144830ab4c68e8f64858d9564d04b0057521f662",
+			"revisionTime": "2018-05-24T15:04:56Z"
+		},
+		{
 			"checksumSHA1": "kChwmKazQLFun0USpBail+TyUYI=",
 			"path": "github.com/asaskevich/govalidator",
 			"revision": "7d2e70ef918f16bd6455529af38304d6d025c952",
@@ -791,5 +797,5 @@
 			"revisionTime": "2018-03-28T19:50:20Z"
 		}
 	],
-	"rootPath": "github.com/alibaba/d2p-migrator"
+	"rootPath": "github.com/pouchcontainer/d2p-migrator"
 }

@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/pouchcontainer/d2p-migrator/ctrd"
+	"github.com/pouchcontainer/d2p-migrator/migrator"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/pkg/reexec"
@@ -17,6 +21,7 @@ type Config struct {
 	PouchPkgPath string
 	MigrateAll   bool
 	Debug        bool
+	ImageProxy   string
 }
 
 var cfg = &Config{}
@@ -43,6 +48,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	os.Exit(0)
 }
 
 // initLog initializes log Level and log format of daemon.
@@ -66,6 +72,7 @@ func setupFlags(cmd *cobra.Command) {
 	flagSet.StringVar(&cfg.PouchPkgPath, "pouch-pkg-path", "pouch", "Specify pouch package file path")
 	flagSet.BoolVar(&cfg.MigrateAll, "migrate-all", false, "If true, do all migration things, otherwise, just prepare data for migration")
 	flagSet.BoolVarP(&cfg.Debug, "debug", "D", false, "DEBUG mode log level")
+	flagSet.StringVar(&cfg.ImageProxy, "image-proxy", "", "Http proxy to pull image")
 }
 
 func parseFlags(cmd *cobra.Command, flags []string) {
@@ -83,15 +90,21 @@ func runCmd() error {
 	// initialize log
 	initLog()
 
-	migrator, err := NewPouchMigrator(cfg.DockerPkg, cfg.PouchPkgPath, cfg.Debug)
+	if cfg.ImageProxy != "" {
+		ctrd.SetImageProxy(cfg.ImageProxy)
+	}
+
+	ctx := context.Background()
+
+	migrator, err := migrator.NewPouchMigrator(cfg.DockerPkg, cfg.PouchPkgPath, cfg.Debug)
 	if err != nil {
 		logrus.Errorf("failed to new pouch migrator: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	defer migrator.Cleanup()
 
-	if err := migrator.PreMigrate(); err != nil {
+	if err := migrator.PreMigrate(ctx); err != nil {
 		logrus.Errorf("failed to execute PreMigrage: %v", err)
 		return err
 	}
@@ -116,14 +129,14 @@ func runCmd() error {
 		}
 	}()
 
-	if err := migrator.Migrate(); err != nil {
+	if err := migrator.Migrate(ctx); err != nil {
 		logrus.Infof("failed to migrate: %v\n", err)
 		needRevert = true
 		return err
 	}
 
 	// If PostMigrate failed, should handle by manual.
-	if err := migrator.PostMigrate(); err != nil {
+	if err := migrator.PostMigrate(ctx); err != nil {
 		logrus.Errorf("PostMigrate error: %v, need handle by manual!!!", err)
 		return err
 	}
