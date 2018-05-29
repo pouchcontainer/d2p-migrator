@@ -1,6 +1,7 @@
-package main
+package migrator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,29 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pouchcontainer/d2p-migrator/ctrd"
+	"github.com/pouchcontainer/d2p-migrator/docker"
+	"github.com/pouchcontainer/d2p-migrator/pouch"
+	"github.com/pouchcontainer/d2p-migrator/utils"
+
 	"github.com/Sirupsen/logrus"
-	"github.com/alibaba/d2p-migrator/utils"
+	pouchtypes "github.com/alibaba/pouch/apis/types"
 	"github.com/alibaba/pouch/storage/quota"
-	"golang.org/x/net/context"
+	dockerCli "github.com/docker/engine-api/client"
 )
-
-// Migrator is an interface to migrate docker containers to other containers
-type Migrator interface {
-	// PreMigrate do something before migration
-	PreMigrate() error
-
-	// Migrate does migrate action
-	Migrate() error
-
-	// PostMigrate do something after migration
-	PostMigrate() error
-
-	// RevertMigration reverts migration
-	RevertMigration() error
-
-	// Cleanup does some clean works when migrator exited
-	Cleanup() error
-}
 
 // Actions that PouchMigrator migration does.
 // 0. Install containerd1.0.3
@@ -49,14 +37,15 @@ type Migrator interface {
 // PouchMigrator is a tool to migrate docker containers to pouch containers
 type PouchMigrator struct {
 	debug         bool
-	containerd    *Ctrd
-	dockerd       *Dockerd
+	containerd    *ctrd.Ctrd
+	dockerd       *docker.Dockerd
 	pouchHomeDir  string
 	dockerHomeDir string
 	pouchPkgPath  string
 	dockerPkg     string
 
 	upperDirMappingList []*UpperDirMapping
+	allContainers       map[string]bool
 	runningContainers   []string
 }
 
@@ -70,7 +59,7 @@ type UpperDirMapping struct {
 
 // NewPouchMigrator creates a migrator tool instance.
 func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug bool) (Migrator, error) {
-	dockerCli, err := NewDockerd()
+	dockerCli, err := docker.NewDockerd()
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +108,7 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug bool) (Migrator, err
 		return nil, fmt.Errorf("d2p-migrate not support migrate remote dik")
 	}
 
-	ctrd, err := NewCtrd(homeDir, debug)
+	ctrd, err := ctrd.NewCtrd(homeDir, debug)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +131,7 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug bool) (Migrator, err
 // * create snapshot for container
 // * set snapshot upperDir, workDir diskquota
 // * convert docker container metaJSON to pouch container metaJSON
-func (p *PouchMigrator) PreMigrate() error {
+func (p *PouchMigrator) PreMigrate(ctx context.Context) error {
 	// Get all docker containers on host.
 	containers, err := p.dockerd.ContainerList()
 	if err != nil {
@@ -160,14 +149,18 @@ func (p *PouchMigrator) PreMigrate() error {
 	)
 
 	for _, c := range containers {
-		p.runningContainers = append(p.runningContainers, c.ID)
+		p.allContainers[c.ID] = false
+
+		if c.Status == "running" {
+			p.runningContainers = append(p.runningContainers, c.ID)
+		}
 
 		meta, err := p.dockerd.ContainerInspect(c.ID)
 		if err != nil {
 			return err
 		}
 
-		pouchMeta, err := ToPouchContainerMeta(&meta)
+		pouchMeta, err := pouch.ToPouchContainerMeta(&meta)
 		if err != nil {
 			return err
 		}
@@ -185,7 +178,7 @@ func (p *PouchMigrator) PreMigrate() error {
 		pouchMeta.Config.Image = image.RepoTags[0]
 		pouchMeta.BaseFS = path.Join(p.pouchHomeDir, "containerd/state/io.containerd.runtime.v1.linux/default", meta.ID, "rootfs")
 
-		if err := p.doPrepare(pouchMeta); err != nil {
+		if err := p.doPrepare(ctx, pouchMeta); err != nil {
 			return err
 		}
 
@@ -204,7 +197,7 @@ func (p *PouchMigrator) PreMigrate() error {
 	return nil
 }
 
-func (p *PouchMigrator) save2Disk(homeDir string, meta *PouchContainer) error {
+func (p *PouchMigrator) save2Disk(homeDir string, meta *pouch.PouchContainer) error {
 	dir := path.Join(homeDir, meta.ID)
 	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
@@ -259,9 +252,7 @@ func (p *PouchMigrator) getOverlayFsDir(ctx context.Context, snapID string) (str
 }
 
 // doPrepare prepares image and snapshot by using old container info.
-func (p *PouchMigrator) doPrepare(meta *PouchContainer) error {
-	ctx := context.Background()
-
+func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContainer) error {
 	// Pull image
 	logrus.Infof("Start pull image: %s", meta.Image)
 	if err := p.containerd.PullImage(ctx, meta.Image); err != nil {
@@ -365,14 +356,15 @@ func (p *PouchMigrator) setDirDiskQuota(defaultQuota, quotaID, dir string) error
 // Migrate migrates docker containers to pouch containers:
 // * stop all docker containers
 // * mv oldUpperDir/* newUpperDir/
-func (p *PouchMigrator) Migrate() error {
+func (p *PouchMigrator) Migrate(ctx context.Context) error {
 
 	// Copy network db file
 	dbName := "local-kv.db"
+	srcNetDBFile := path.Join(p.dockerHomeDir, "network/files", dbName)
+
 	dstNetDBDir := path.Join(p.pouchHomeDir, "network/files")
 	dstNetDBFile := path.Join(dstNetDBDir, dbName)
-	srcNetDBDir := path.Join(p.dockerHomeDir, "network/files")
-	if _, err := os.Stat(path.Join(srcNetDBDir, dbName)); err != nil {
+	if _, err := os.Stat(srcNetDBFile); err != nil {
 		return err
 	}
 
@@ -387,7 +379,7 @@ func (p *PouchMigrator) Migrate() error {
 		}
 	}
 
-	if err := utils.ExecCommand("cp", path.Join(srcNetDBDir, dbName), dstNetDBDir); err != nil {
+	if err := utils.ExecCommand("cp", srcNetDBFile, dstNetDBDir); err != nil {
 		return fmt.Errorf("failed to prepare network db file: %v", err)
 	}
 
@@ -395,7 +387,9 @@ func (p *PouchMigrator) Migrate() error {
 	timeout := time.Duration(1) * time.Second
 	for _, c := range p.runningContainers {
 		if err := p.dockerd.ContainerStop(c, &timeout); err != nil {
-			return fmt.Errorf("failed to stop container: %v", err)
+			if !dockerCli.IsErrNotFound(err) {
+				return fmt.Errorf("failed to stop container: %v", err)
+			}
 		}
 	}
 
@@ -419,9 +413,32 @@ func (p *PouchMigrator) Migrate() error {
 }
 
 // PostMigrate does something after migration.
-func (p *PouchMigrator) PostMigrate() error {
+func (p *PouchMigrator) PostMigrate(ctx context.Context) error {
 	// stop containerd instance
 	p.containerd.Cleanup()
+
+	// Get all docker containers on host again,
+	// In case, there will have containers be deleted
+	// Notes: we will lock host first, so there will have no
+	// new containers created
+	containers, err := p.dockerd.ContainerList()
+	if err != nil {
+		return fmt.Errorf("failed to get containers list: %v", err)
+	}
+	logrus.Debugf("Get %d containers", len(containers))
+
+	for _, c := range containers {
+		if _, exists := p.allContainers[c.ID]; exists {
+			p.allContainers[c.ID] = true
+		}
+	}
+
+	deletedContainers := []string{}
+	for id, exists := range p.allContainers {
+		if !exists {
+			deletedContainers = append(deletedContainers, id)
+		}
+	}
 
 	// Uninstall docker
 	// TODO backup two config files: /etc/sysconfig/docker, /etc/docker/daemon.jon
@@ -438,8 +455,18 @@ func (p *PouchMigrator) PostMigrate() error {
 		return fmt.Errorf("failed to stop docker: %v", err)
 	}
 
+	// Change docker bridge mode to nat mode
+	logrus.Infof("Start change docker net mode from bridge to nat")
+	if err := utils.ExecCommand("setup-bridge", "stop"); err != nil {
+		return fmt.Errorf("failed to stop bridge nat: %v", err)
+	}
+	if err := utils.ExecCommand("setup-bridge", "nat"); err != nil {
+		return fmt.Errorf("failed to set nat mode: %v", err)
+	}
+
+	// Remove docker
 	logrus.Infof("Start to uninstall docker: %s", p.dockerPkg)
-	if err := utils.ExecCommand("yum", "remove", "-y", p.dockerPkg); err != nil {
+	if err := utils.ExecCommand("yum", "erase", "-y", p.dockerPkg); err != nil {
 		return fmt.Errorf("failed to uninstall docker: %v", err)
 	}
 
@@ -461,19 +488,31 @@ func (p *PouchMigrator) PostMigrate() error {
 		return fmt.Errorf("failed to restart pouch: %v", err)
 	}
 
-	logrus.Info("Start start containers")
 	// TODO should specify pouchd socket path
-	pouchCli, err := NewPouchClient("")
+	pouchCli, err := pouch.NewPouchClient("")
 	if err != nil {
 		logrus.Errorf("failed to create a pouch client: %v, need start container by manual", err)
 		return err
 	}
 
+	logrus.Infof("Has %d containers being deleted", len(deletedContainers))
+	for _, c := range deletedContainers {
+		if err := pouchCli.ContainerRemove(ctx, c, &pouchtypes.ContainerRemoveOptions{Force: true}); err != nil {
+			if !strings.Contains(err.Error(), "not found") {
+				return err
+			}
+		}
+	}
+
+	logrus.Info("Start start containers")
 	// Start all containers need being running
 	for _, c := range p.runningContainers {
-		if err := pouchCli.ContainerStart(context.Background(), c, ""); err != nil {
-			logrus.Errorf("failed to start container %s: %v", c, err)
+		if utils.StringInSlice(deletedContainers, c) {
+			continue
+		}
 
+		if err := pouchCli.ContainerStart(ctx, c, ""); err != nil {
+			logrus.Errorf("failed to start container %s: %v", c, err)
 			return err
 		}
 	}

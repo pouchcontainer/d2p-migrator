@@ -1,4 +1,4 @@
-package main
+package ctrd
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/alibaba/d2p-migrator/utils"
+	"github.com/pouchcontainer/d2p-migrator/utils"
 
 	pouchtypes "github.com/alibaba/pouch/apis/types"
 	"github.com/containerd/containerd"
@@ -160,10 +160,10 @@ func resolver(authConfig *pouchtypes.AuthConfig) (remotes.Resolver, error) {
 		insecure  = false
 	)
 
-	if authConfig != nil {
-		username = authConfig.Username
-		secret = authConfig.Password
-	}
+	// if authConfig != nil {
+	// 	username = authConfig.Username
+	// 	secret = authConfig.Password
+	// }
 
 	// FIXME
 	_ = refresh
@@ -178,7 +178,7 @@ func resolver(authConfig *pouchtypes.AuthConfig) (remotes.Resolver, error) {
 	}
 
 	tr := &http.Transport{
-		//Proxy: proxyFromEnvironment,
+		Proxy: proxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,

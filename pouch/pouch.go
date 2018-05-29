@@ -1,4 +1,4 @@
-package main
+package pouch
 
 import (
 	"github.com/alibaba/pouch/apis/types"
