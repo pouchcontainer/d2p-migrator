@@ -17,11 +17,13 @@ import (
 
 // Config of pouch-migrator
 type Config struct {
-	DockerPkg    string
-	PouchPkgPath string
-	MigrateAll   bool
-	Debug        bool
-	ImageProxy   string
+	DockerPkg                   string
+	PouchPkgPath                string
+	MigrateAll                  bool
+	Debug                       bool
+	ImageProxy                  string
+	AutoTakeoverDockerContainer bool
+	DryRun                      bool
 }
 
 var cfg = &Config{}
@@ -72,6 +74,8 @@ func setupFlags(cmd *cobra.Command) {
 	flagSet.StringVar(&cfg.PouchPkgPath, "pouch-pkg-path", "pouch", "Specify pouch package file path")
 	flagSet.BoolVar(&cfg.MigrateAll, "migrate-all", false, "If true, do all migration things, otherwise, just prepare data for migration")
 	flagSet.BoolVarP(&cfg.Debug, "debug", "D", false, "DEBUG mode log level")
+	flagSet.BoolVar(&cfg.DryRun, "dry-run", false, "we will not remove docker package, if dry-run flag set")
+	flagSet.BoolVar(&cfg.AutoTakeoverDockerContainer, "auto-takeover-docker-container", false, "auto takeover docker container when migrate Docker to PouchContainer")
 	flagSet.StringVar(&cfg.ImageProxy, "image-proxy", "", "Http proxy to pull image")
 }
 
@@ -96,7 +100,7 @@ func runCmd() error {
 
 	ctx := context.Background()
 
-	migrator, err := migrator.NewPouchMigrator(cfg.DockerPkg, cfg.PouchPkgPath, cfg.Debug)
+	migrator, err := migrator.NewPouchMigrator(cfg.DockerPkg, cfg.PouchPkgPath, cfg.Debug, cfg.DryRun)
 	if err != nil {
 		logrus.Errorf("failed to new pouch migrator: %v\n", err)
 		return err
@@ -104,7 +108,7 @@ func runCmd() error {
 
 	defer migrator.Cleanup()
 
-	if err := migrator.PreMigrate(ctx); err != nil {
+	if err := migrator.PreMigrate(ctx, cfg.AutoTakeoverDockerContainer); err != nil {
 		logrus.Errorf("failed to execute PreMigrage: %v", err)
 		return err
 	}
@@ -120,7 +124,7 @@ func runCmd() error {
 		if needRevert {
 			logrus.Info("Migration has failed, start revert...")
 
-			if err := migrator.RevertMigration(); err != nil {
+			if err := migrator.RevertMigration(ctx, cfg.AutoTakeoverDockerContainer); err != nil {
 				logrus.Errorf("failed to revert migration: %v", err)
 				return
 			}
@@ -129,14 +133,14 @@ func runCmd() error {
 		}
 	}()
 
-	if err := migrator.Migrate(ctx); err != nil {
-		logrus.Infof("failed to migrate: %v\n", err)
+	if err := migrator.Migrate(ctx, cfg.AutoTakeoverDockerContainer); err != nil {
+		logrus.Errorf("failed to migrate: %v\n", err)
 		needRevert = true
 		return err
 	}
 
 	// If PostMigrate failed, should handle by manual.
-	if err := migrator.PostMigrate(ctx); err != nil {
+	if err := migrator.PostMigrate(ctx, cfg.AutoTakeoverDockerContainer); err != nil {
 		logrus.Errorf("PostMigrate error: %v, need handle by manual!!!", err)
 		return err
 	}

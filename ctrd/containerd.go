@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -17,8 +18,12 @@ import (
 
 	pouchtypes "github.com/alibaba/pouch/apis/types"
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/leases"
+	"github.com/containerd/containerd/linux/runctypes"
 	"github.com/containerd/containerd/mount"
+	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
@@ -160,11 +165,6 @@ func resolver(authConfig *pouchtypes.AuthConfig) (remotes.Resolver, error) {
 		insecure  = false
 	)
 
-	// if authConfig != nil {
-	// 	username = authConfig.Username
-	// 	secret = authConfig.Password
-	// }
-
 	// FIXME
 	_ = refresh
 
@@ -245,4 +245,43 @@ func (ctrd *Ctrd) RemoveSnapshot(ctx context.Context, id string) error {
 
 	return service.Remove(ctx, id)
 
+}
+
+// NewContainer just create a very simple container for migration
+// just load container id to boltdb
+func (ctrd *Ctrd) NewContainer(ctx context.Context, id string) error {
+	ctx = namespaces.WithNamespace(ctx, namespaces.Default)
+
+	spec, err := oci.GenerateSpec(ctx, nil, &containers.Container{ID: id})
+	if err != nil {
+		return fmt.Errorf("fail to generate spec for container %s: %v", id, err)
+	}
+
+	options := []containerd.NewContainerOpts{
+		containerd.WithSpec(spec),
+		containerd.WithRuntime(fmt.Sprintf("io.containerd.runtime.v1.%s", runtime.GOOS), &runctypes.RuncOptions{
+			Runtime: "docker-runc",
+		}),
+	}
+
+	if _, err := ctrd.client.NewContainer(ctx, id, options...); err != nil {
+		return fmt.Errorf("failed to create new containerd container %s: %v", id, err)
+	}
+
+	return nil
+}
+
+// GetContainer is to fetch a container info from containerd
+func (ctrd *Ctrd) GetContainer(ctx context.Context, id string) (containers.Container, error) {
+	ctx = namespaces.WithNamespace(ctx, namespaces.Default)
+
+	return ctrd.client.ContainerService().Get(ctx, id)
+}
+
+// DeleteContainer deletes a containerd container
+func (ctrd *Ctrd) DeleteContainer(ctx context.Context, id string) error {
+
+	ctx = namespaces.WithNamespace(ctx, namespaces.Default)
+
+	return ctrd.client.ContainerService().Delete(ctx, id)
 }
