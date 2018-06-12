@@ -19,6 +19,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	pouchtypes "github.com/alibaba/pouch/apis/types"
 	"github.com/alibaba/pouch/storage/quota"
+	"github.com/containerd/containerd/errdefs"
 	dockerCli "github.com/docker/engine-api/client"
 )
 
@@ -47,6 +48,7 @@ type PouchMigrator struct {
 	upperDirMappingList []*UpperDirMapping
 	allContainers       map[string]bool
 	runningContainers   []string
+	dryRun              bool
 }
 
 // UpperDirMapping stores overlayfs upperDir map for docker and pouch.
@@ -58,7 +60,7 @@ type UpperDirMapping struct {
 }
 
 // NewPouchMigrator creates a migrator tool instance.
-func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug bool) (Migrator, error) {
+func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug, dryRun bool) (Migrator, error) {
 	dockerCli, err := docker.NewDockerd()
 	if err != nil {
 		return nil, err
@@ -121,6 +123,8 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug bool) (Migrator, err
 		dockerHomeDir: info.DockerRootDir,
 		dockerPkg:     dockerPkg,
 		pouchPkgPath:  pouchPkgPath,
+		allContainers: map[string]bool{},
+		dryRun:        dryRun,
 	}
 
 	return migrator, nil
@@ -131,7 +135,7 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug bool) (Migrator, err
 // * create snapshot for container
 // * set snapshot upperDir, workDir diskquota
 // * convert docker container metaJSON to pouch container metaJSON
-func (p *PouchMigrator) PreMigrate(ctx context.Context) error {
+func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) error {
 	// Get all docker containers on host.
 	containers, err := p.dockerd.ContainerList()
 	if err != nil {
@@ -151,7 +155,8 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context) error {
 	for _, c := range containers {
 		p.allContainers[c.ID] = false
 
-		if c.Status == "running" {
+		// TODO: not consider status paused
+		if c.State == "running" {
 			p.runningContainers = append(p.runningContainers, c.ID)
 		}
 
@@ -173,27 +178,36 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context) error {
 		if len(image.RepoTags) == 0 {
 			return fmt.Errorf("failed to get image %s: repoTags is empty", meta.Image)
 		}
-
+		// set image to image name
 		pouchMeta.Image = image.RepoTags[0]
 		pouchMeta.Config.Image = image.RepoTags[0]
-		pouchMeta.BaseFS = path.Join(p.pouchHomeDir, "containerd/state/io.containerd.runtime.v1.linux/default", meta.ID, "rootfs")
 
-		if err := p.doPrepare(ctx, pouchMeta); err != nil {
+		// prepare for migration
+		if err := p.doPrepare(ctx, pouchMeta, takeOverContainer); err != nil {
 			return err
+		}
+
+		if !takeOverContainer || !(pouchMeta.State.Status == pouchtypes.StatusRunning) {
+			// change BaseFS
+			pouchMeta.BaseFS = path.Join(p.pouchHomeDir, "containerd/state/io.containerd.runtime.v1.linux/default", meta.ID, "rootfs")
+
+			// Takeover unset
+			pouchMeta.Takeover = false
+
+			// store upperDir mapping
+			p.upperDirMappingList = append(p.upperDirMappingList, &UpperDirMapping{
+				srcDir: meta.GraphDriver.Data["UpperDir"],
+				dstDir: pouchMeta.Snapshotter.Data["UpperDir"],
+			})
 		}
 
 		// Save container meta json to disk.
 		if err := p.save2Disk(containersDir, pouchMeta); err != nil {
 			return err
 		}
-
-		// store upperDir mapping
-		p.upperDirMappingList = append(p.upperDirMappingList, &UpperDirMapping{
-			srcDir: meta.GraphDriver.Data["UpperDir"],
-			dstDir: pouchMeta.Snapshotter.Data["UpperDir"],
-		})
 	}
 
+	logrus.Infof("running containers: %v", p.runningContainers)
 	return nil
 }
 
@@ -252,7 +266,7 @@ func (p *PouchMigrator) getOverlayFsDir(ctx context.Context, snapID string) (str
 }
 
 // doPrepare prepares image and snapshot by using old container info.
-func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContainer) error {
+func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContainer, takeOverContainer bool) error {
 	// Pull image
 	logrus.Infof("Start pull image: %s", meta.Image)
 	if err := p.containerd.PullImage(ctx, meta.Image); err != nil {
@@ -260,6 +274,22 @@ func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContaine
 		return err
 	}
 	logrus.Infof("End pull image: %s", meta.Image)
+
+	// Stopped containers still need to be converted.
+	if takeOverContainer && meta.State.Status == pouchtypes.StatusRunning {
+		logrus.Infof("auto take over running container %s, no need convert process", meta.ID)
+
+		_, err := p.containerd.GetContainer(ctx, meta.ID)
+		if err == nil { // container already exist
+			if err := p.containerd.DeleteContainer(ctx, meta.ID); err != nil {
+				return fmt.Errorf("failed to delete already existed containerd container %s: %v", meta.ID, err)
+			}
+		} else if !errdefs.IsNotFound(err) {
+			return fmt.Errorf("failed to get containerd container: %v", err)
+		}
+
+		return p.containerd.NewContainer(ctx, meta.ID)
+	}
 
 	logrus.Infof("Start prepare snapshot %s", meta.ID)
 	_, err := p.containerd.GetSnapshot(ctx, meta.ID)
@@ -280,9 +310,9 @@ func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContaine
 		return fmt.Errorf("snapshot mounts occurred an error: upperDir=%s, workDir=%s", upperDir, workDir)
 	}
 
-	if meta.Snapshotter.Data == nil {
-		meta.Snapshotter.Data = map[string]string{}
-	}
+	// If need convert docker container to pouch container,
+	// we should also convert Snapshotter Data
+	meta.Snapshotter.Data = map[string]string{}
 	meta.Snapshotter.Data["UpperDir"] = upperDir
 
 	// Set diskquota for UpperDir and WorkDir.
@@ -356,7 +386,7 @@ func (p *PouchMigrator) setDirDiskQuota(defaultQuota, quotaID, dir string) error
 // Migrate migrates docker containers to pouch containers:
 // * stop all docker containers
 // * mv oldUpperDir/* newUpperDir/
-func (p *PouchMigrator) Migrate(ctx context.Context) error {
+func (p *PouchMigrator) Migrate(ctx context.Context, takeOverContainer bool) error {
 
 	// Copy network db file
 	dbName := "local-kv.db"
@@ -385,14 +415,18 @@ func (p *PouchMigrator) Migrate(ctx context.Context) error {
 
 	// Stop all running containers
 	timeout := time.Duration(1) * time.Second
-	for _, c := range p.runningContainers {
-		if err := p.dockerd.ContainerStop(c, &timeout); err != nil {
-			if !dockerCli.IsErrNotFound(err) {
-				return fmt.Errorf("failed to stop container: %v", err)
+	if !takeOverContainer {
+		for _, c := range p.runningContainers {
+			logrus.Infof("Start stop container %s", c)
+			if err := p.dockerd.ContainerStop(c, &timeout); err != nil {
+				if !dockerCli.IsErrNotFound(err) {
+					return fmt.Errorf("failed to stop container: %v", err)
+				}
 			}
 		}
 	}
 
+	// Only mv stopped containers' upperDir
 	// mv oldUpperDir/* newUpperDir/
 	for _, dirMapping := range p.upperDirMappingList {
 		isEmpty, err := utils.IsDirEmpty(dirMapping.srcDir)
@@ -413,7 +447,7 @@ func (p *PouchMigrator) Migrate(ctx context.Context) error {
 }
 
 // PostMigrate does something after migration.
-func (p *PouchMigrator) PostMigrate(ctx context.Context) error {
+func (p *PouchMigrator) PostMigrate(ctx context.Context, takeOverContainer bool) error {
 	// stop containerd instance
 	p.containerd.Cleanup()
 
@@ -455,24 +489,26 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context) error {
 		return fmt.Errorf("failed to stop docker: %v", err)
 	}
 
-	// Change docker bridge mode to nat mode
-	logrus.Infof("Start change docker net mode from bridge to nat")
-	if err := utils.ExecCommand("setup-bridge", "stop"); err != nil {
-		return fmt.Errorf("failed to stop bridge nat: %v", err)
-	}
-	if err := utils.ExecCommand("setup-bridge", "nat"); err != nil {
-		return fmt.Errorf("failed to set nat mode: %v", err)
-	}
+	// if dryRun set or take over old container, just test the code, not remove the package
+	if !p.dryRun && !takeOverContainer {
+		// Change docker bridge mode to nat mode
+		logrus.Infof("Start change docker net mode from bridge to nat")
+		if err := utils.ExecCommand("setup-bridge", "stop"); err != nil {
+			logrus.Errorf("failed to stop bridge nat: %v", err)
+		}
+		if err := utils.ExecCommand("setup-bridge", "nat"); err != nil {
+			logrus.Errorf("failed to set nat mode: %v", err)
+		}
 
-	// Remove docker
-	logrus.Infof("Start to uninstall docker: %s", p.dockerPkg)
-	if err := utils.ExecCommand("yum", "erase", "-y", p.dockerPkg); err != nil {
-		return fmt.Errorf("failed to uninstall docker: %v", err)
+		// Remove docker
+		logrus.Infof("Start to uninstall docker: %s", p.dockerPkg)
+		if err := utils.ExecCommand("yum", "remove", "-y", p.dockerPkg); err != nil {
+			return fmt.Errorf("failed to uninstall docker: %v", err)
+		}
 	}
 
 	// Install pouch
 	logrus.Infof("Start install pouch: %s", p.pouchPkgPath)
-	// time.Sleep(20 * time.Second)
 	if err := utils.ExecCommand("yum", "install", "-y", p.pouchPkgPath); err != nil {
 		logrus.Errorf("failed to install pouch: %v", err)
 		return err
@@ -487,6 +523,9 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context) error {
 	if err := utils.ExecCommand("systemctl", "restart", "pouch"); err != nil {
 		return fmt.Errorf("failed to restart pouch: %v", err)
 	}
+
+	// logrus.Info("wait 20s to start pouch")
+	// time.Sleep(20 * time.Second)
 
 	// TODO should specify pouchd socket path
 	pouchCli, err := pouch.NewPouchClient("")
@@ -504,16 +543,24 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context) error {
 		}
 	}
 
-	logrus.Info("Start start containers")
-	// Start all containers need being running
-	for _, c := range p.runningContainers {
-		if utils.StringInSlice(deletedContainers, c) {
-			continue
+	if !takeOverContainer {
+		// after start pouch we should clean docker0 bridge, if not take over
+		// old containers
+		if err := utils.ExecCommand("ip", "link", "del", "docker0"); err != nil {
+			logrus.Errorf("failed to delete docker0 bridge: %v", err)
 		}
 
-		if err := pouchCli.ContainerStart(ctx, c, ""); err != nil {
-			logrus.Errorf("failed to start container %s: %v", c, err)
-			return err
+		// Start all containers need being running
+		for _, c := range p.runningContainers {
+			if utils.StringInSlice(deletedContainers, c) {
+				continue
+			}
+
+			logrus.Infof("Start starting container %s", c)
+			if err := pouchCli.ContainerStart(ctx, c, ""); err != nil {
+				logrus.Errorf("failed to start container %s: %v", c, err)
+				return err
+			}
 		}
 	}
 
@@ -522,7 +569,7 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context) error {
 }
 
 // RevertMigration reverts migration.
-func (p *PouchMigrator) RevertMigration() error {
+func (p *PouchMigrator) RevertMigration(ctx context.Context, takeOverContainer bool) error {
 	// Then, move all upperDir back
 	for _, dirMapping := range p.upperDirMappingList {
 		if err := utils.MoveDir(dirMapping.dstDir, dirMapping.srcDir); err != nil {
@@ -532,10 +579,12 @@ func (p *PouchMigrator) RevertMigration() error {
 		}
 	}
 
-	// Start all running containers
-	for _, c := range p.runningContainers {
-		if err := p.dockerd.ContainerStart(c); err != nil {
-			return fmt.Errorf("failed start container: %v", err)
+	if !takeOverContainer {
+		// Start all running containers
+		for _, c := range p.runningContainers {
+			if err := p.dockerd.ContainerStart(c); err != nil {
+				return fmt.Errorf("failed start container: %v", err)
+			}
 		}
 	}
 

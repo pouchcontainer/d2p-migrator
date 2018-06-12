@@ -97,6 +97,10 @@ type PouchContainer struct {
 
 	// Escape keys for detach
 	DetachKeys string
+
+	// Specify if the container is taken over by pouch,
+	// or just created by pouch
+	Takeover bool
 }
 
 // NewPouchClient create a client of pouchd.

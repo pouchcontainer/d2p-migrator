@@ -26,7 +26,6 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		// NoNewPrivileges
 		// TODO: should change ExecIds to ExecIDs
 		// ExecIds:         meta.ExecIDs,
-		// BaseFS
 		// DetachKeys
 		// Node
 		AppArmorProfile: meta.AppArmorProfile,
@@ -47,10 +46,14 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		Path:         meta.Path,
 		ProcessLabel: meta.ProcessLabel,
 		RestartCount: int64(meta.RestartCount),
+		Takeover:     true,
 	}
 
 	// Name
 	pouchMeta.Name = strings.TrimPrefix(meta.Name, "/")
+
+	// BaseFS
+	pouchMeta.BaseFS = meta.GraphDriver.Data["MergedDir"]
 
 	// SizeRootFs, SizeRw
 	if meta.SizeRootFs != nil {
@@ -64,21 +67,23 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 	// GraphDriver
 	pouchMeta.Snapshotter = &pouchtypes.SnapshotterData{
 		Name: "overlayfs",
+		Data: meta.GraphDriver.Data,
 	}
 
 	// State: converted container is stopped
+
 	pouchMeta.State = &pouchtypes.ContainerState{
 		Dead:       meta.State.Dead,
 		Error:      meta.State.Error,
 		ExitCode:   int64(meta.State.ExitCode),
 		FinishedAt: meta.State.FinishedAt,
 		OOMKilled:  false,
-		Paused:     false,
-		Pid:        -1,
+		Paused:     meta.State.Paused,
+		Pid:        int64(meta.State.Pid),
 		Restarting: false,
-		Running:    false,
+		Running:    meta.State.Running,
 		StartedAt:  meta.State.StartedAt,
-		Status:     pouchtypes.StatusStopped,
+		Status:     toContainerStatus(meta.State.Status),
 	}
 
 	// Mounts
@@ -157,6 +162,25 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 	pouchMeta.NetworkSettings = networks
 
 	return pouchMeta, nil
+}
+
+func toContainerStatus(status string) pouchtypes.Status {
+	var containerStatus pouchtypes.Status
+
+	switch status {
+	case "running":
+		containerStatus = pouchtypes.StatusRunning
+	case "stopped":
+		containerStatus = pouchtypes.StatusStopped
+	case "created":
+		containerStatus = pouchtypes.StatusCreated
+	case "paused":
+		containerStatus = pouchtypes.StatusPaused
+	case "dead":
+		containerStatus = pouchtypes.StatusDead
+	}
+
+	return containerStatus
 }
 
 func toContainerConfig(config *containertypes.Config) (*pouchtypes.ContainerConfig, error) {
