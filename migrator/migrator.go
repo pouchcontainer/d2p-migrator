@@ -37,18 +37,25 @@ import (
 
 // PouchMigrator is a tool to migrate docker containers to pouch containers
 type PouchMigrator struct {
-	debug         bool
-	containerd    *ctrd.Ctrd
+	debug  bool
+	dryRun bool
+
+	// containerd config
+	containerd *ctrd.Ctrd
+
+	// pouch config
+	pouchHomeDir string
+	pouchPkgPath string
+
+	// docker config
 	dockerd       *docker.Dockerd
-	pouchHomeDir  string
 	dockerHomeDir string
-	pouchPkgPath  string
 	dockerPkg     string
 
 	upperDirMappingList []*UpperDirMapping
 	allContainers       map[string]bool
 	runningContainers   []string
-	dryRun              bool
+	images              map[string]struct{}
 }
 
 // UpperDirMapping stores overlayfs upperDir map for docker and pouch.
@@ -94,22 +101,6 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug, dryRun bool) (Migra
 		return nil, fmt.Errorf("d2p-migrator only support overlayfs Storage Driver")
 	}
 
-	// if host has remote disk, cannot do migration
-	volumes, err := dockerCli.VolumeList()
-	if err != nil {
-		return nil, err
-	}
-
-	hasRemoteDisk := false
-	for _, v := range volumes.Volumes {
-		if utils.StringInSlice([]string{"ultron"}, v.Driver) {
-			hasRemoteDisk = true
-		}
-	}
-	if hasRemoteDisk {
-		return nil, fmt.Errorf("d2p-migrate not support migrate remote dik")
-	}
-
 	ctrd, err := ctrd.NewCtrd(homeDir, debug)
 	if err != nil {
 		return nil, err
@@ -125,6 +116,7 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug, dryRun bool) (Migra
 		pouchPkgPath:  pouchPkgPath,
 		allContainers: map[string]bool{},
 		dryRun:        dryRun,
+		images:        map[string]struct{}{},
 	}
 
 	return migrator, nil
@@ -136,6 +128,13 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug, dryRun bool) (Migra
 // * set snapshot upperDir, workDir diskquota
 // * convert docker container metaJSON to pouch container metaJSON
 func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) error {
+	// Change pouch config file
+	if _, err := os.Stat("/etc/pouch/config.json"); err == nil {
+		if err := utils.ExecCommand("sed", "-i", fmt.Sprintf(`s|\("home-dir": "\).*|\1%s",|`, p.pouchHomeDir), "/etc/pouch/config.json"); err != nil {
+			logrus.Errorf("failed to change pouch config file: %v", err)
+		}
+	}
+
 	// Get all docker containers on host.
 	containers, err := p.dockerd.ContainerList()
 	if err != nil {
@@ -192,7 +191,7 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) 
 			pouchMeta.BaseFS = path.Join(p.pouchHomeDir, "containerd/state/io.containerd.runtime.v1.linux/default", meta.ID, "rootfs")
 
 			// Takeover unset
-			pouchMeta.Takeover = false
+			pouchMeta.RootFSProvided = false
 
 			// store upperDir mapping
 			p.upperDirMappingList = append(p.upperDirMappingList, &UpperDirMapping{
@@ -268,12 +267,19 @@ func (p *PouchMigrator) getOverlayFsDir(ctx context.Context, snapID string) (str
 // doPrepare prepares image and snapshot by using old container info.
 func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContainer, takeOverContainer bool) error {
 	// Pull image
-	logrus.Infof("Start pull image: %s", meta.Image)
-	if err := p.containerd.PullImage(ctx, meta.Image); err != nil {
-		logrus.Errorf("failed to pull image %s: %v\n", meta.Image, err)
-		return err
+	_, imageExist := p.images[meta.Image]
+	if imageExist {
+		logrus.Infof("image %s has been downloaded, skip pull image", meta.Image)
+	} else {
+		p.images[meta.Image] = struct{}{}
+
+		logrus.Infof("Start pull image: %s", meta.Image)
+		if err := p.containerd.PullImage(ctx, meta.Image); err != nil {
+			logrus.Errorf("failed to pull image %s: %v\n", meta.Image, err)
+			return err
+		}
+		logrus.Infof("End pull image: %s", meta.Image)
 	}
-	logrus.Infof("End pull image: %s", meta.Image)
 
 	// Stopped containers still need to be converted.
 	if takeOverContainer && meta.State.Status == pouchtypes.StatusRunning {
@@ -429,12 +435,9 @@ func (p *PouchMigrator) Migrate(ctx context.Context, takeOverContainer bool) err
 	// Only mv stopped containers' upperDir
 	// mv oldUpperDir/* newUpperDir/
 	for _, dirMapping := range p.upperDirMappingList {
-		isEmpty, err := utils.IsDirEmpty(dirMapping.srcDir)
-		if err != nil {
-			return err
-		}
-		if isEmpty {
-			continue
+		// TODO(ziren): need more reasonable method
+		if err := utils.ExecCommand("touch", dirMapping.srcDir+"/d2p-migrator.txt"); err != nil {
+			logrus.Errorf("failed to touch d2p-migrator.txt file: %v", err)
 		}
 
 		if err := utils.MoveDir(dirMapping.srcDir, dirMapping.dstDir); err != nil {
@@ -499,7 +502,9 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context, takeOverContainer bool)
 		if err := utils.ExecCommand("setup-bridge", "nat"); err != nil {
 			logrus.Errorf("failed to set nat mode: %v", err)
 		}
+	}
 
+	if !p.dryRun {
 		// Remove docker
 		logrus.Infof("Start to uninstall docker: %s", p.dockerPkg)
 		if err := utils.ExecCommand("yum", "remove", "-y", p.dockerPkg); err != nil {
@@ -514,25 +519,14 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context, takeOverContainer bool)
 		return err
 	}
 
-	// Change pouch config file
-	if err := utils.ExecCommand("sed", "-i", fmt.Sprintf(`s|\("home-dir": "\).*|\1%s",|`, p.pouchHomeDir), "/etc/pouch/config.json"); err != nil {
-		return fmt.Errorf("failed to change pouch config file: %v", err)
-	}
-
-	// Restart pouch.service
-	if err := utils.ExecCommand("systemctl", "restart", "pouch"); err != nil {
-		return fmt.Errorf("failed to restart pouch: %v", err)
-	}
-
-	// logrus.Info("wait 20s to start pouch")
-	// time.Sleep(20 * time.Second)
-
 	// TODO should specify pouchd socket path
 	pouchCli, err := pouch.NewPouchClient("")
 	if err != nil {
 		logrus.Errorf("failed to create a pouch client: %v, need start container by manual", err)
 		return err
 	}
+
+	// TODO: should wait after pouchd start successfully
 
 	logrus.Infof("Has %d containers being deleted", len(deletedContainers))
 	for _, c := range deletedContainers {

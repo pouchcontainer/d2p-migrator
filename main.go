@@ -75,7 +75,7 @@ func setupFlags(cmd *cobra.Command) {
 	flagSet.BoolVar(&cfg.MigrateAll, "migrate-all", false, "If true, do all migration things, otherwise, just prepare data for migration")
 	flagSet.BoolVarP(&cfg.Debug, "debug", "D", false, "DEBUG mode log level")
 	flagSet.BoolVar(&cfg.DryRun, "dry-run", false, "we will not remove docker package, if dry-run flag set")
-	flagSet.BoolVar(&cfg.AutoTakeoverDockerContainer, "auto-takeover-docker-container", false, "auto takeover docker container when migrate Docker to PouchContainer")
+	flagSet.BoolVar(&cfg.AutoTakeoverDockerContainer, "auto-takeover-docker-container", false, "auto takeover docker running containers which are under alibaba/containerd 0.2.4 when migrating Docker to PouchContainer")
 	flagSet.StringVar(&cfg.ImageProxy, "image-proxy", "", "Http proxy to pull image")
 }
 

@@ -17,7 +17,7 @@ type Dockerd struct {
 // NewDockerd creates a docker client.
 func NewDockerd() (*Dockerd, error) {
 	defaultHeaders := map[string]string{"User-Agent": "engine-api-cli-1.0"}
-	cli, err := dockerCli.NewClient("unix:///var/run/docker.sock", "v1.22", nil, defaultHeaders)
+	cli, err := dockerCli.NewClient("unix:///var/run/docker.sock", "v1.24", nil, defaultHeaders)
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,11 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
+var (
+	// RemoteDrivers specify remote disk drivers
+	RemoteDrivers = []string{"ultron"}
+)
+
 // ToPouchContainerMeta coverts docker container config to pouch container config.
 func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, error) {
 	if meta == nil {
@@ -39,14 +44,14 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		HostsPath:      "",
 		ResolvConfPath: "",
 
-		ID:           meta.ID,
-		Image:        meta.Image,
-		LogPath:      meta.LogPath,
-		MountLabel:   meta.MountLabel,
-		Path:         meta.Path,
-		ProcessLabel: meta.ProcessLabel,
-		RestartCount: int64(meta.RestartCount),
-		Takeover:     true,
+		ID:             meta.ID,
+		Image:          meta.Image,
+		LogPath:        meta.LogPath,
+		MountLabel:     meta.MountLabel,
+		Path:           meta.Path,
+		ProcessLabel:   meta.ProcessLabel,
+		RestartCount:   int64(meta.RestartCount),
+		RootFSProvided: true,
 	}
 
 	// Name
@@ -128,7 +133,16 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 
 	// Convert all mountpoint to bind
 	for _, mount := range mountPoints {
-		bind := fmt.Sprintf("%s:%s", mount.Source, mount.Destination)
+		var bind string
+		if utils.StringInSlice(RemoteDrivers, mount.Driver) {
+			bind = fmt.Sprintf("%s:%s", mount.Name, mount.Destination)
+		} else {
+			bind = fmt.Sprintf("%s:%s", mount.Source, mount.Destination)
+		}
+		if !mount.RW {
+			bind += ":ro"
+		}
+
 		exist := false
 		for _, v := range hostconfig.Binds {
 			if strings.HasPrefix(v, bind) {
@@ -170,7 +184,7 @@ func toContainerStatus(status string) pouchtypes.Status {
 	switch status {
 	case "running":
 		containerStatus = pouchtypes.StatusRunning
-	case "stopped":
+	case "exited":
 		containerStatus = pouchtypes.StatusStopped
 	case "created":
 		containerStatus = pouchtypes.StatusCreated
