@@ -91,13 +91,6 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		Status:     toContainerStatus(meta.State.Status),
 	}
 
-	// Mounts
-	mountPoints, err := toMountPoints(meta.Mounts)
-	if err != nil {
-		return nil, err
-	}
-	pouchMeta.Mounts = mountPoints
-
 	// Config
 	config, err := toContainerConfig(meta.Config)
 	if err != nil {
@@ -130,6 +123,13 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 	if err != nil {
 		return nil, err
 	}
+
+	// Mounts
+	mountPoints, err := toMountPoints(meta.Mounts)
+	if err != nil {
+		return nil, err
+	}
+	pouchMeta.Mounts = mountPoints
 
 	// Convert all mountpoint to bind
 	for _, mount := range mountPoints {
@@ -364,7 +364,7 @@ func toResources(resources containertypes.Resources) (pouchtypes.Resources, erro
 func toMountPoints(mounts []dockertypes.MountPoint) ([]*pouchtypes.MountPoint, error) {
 	pouchMounts := []*pouchtypes.MountPoint{}
 	for _, m := range mounts {
-		pouchMounts = append(pouchMounts, &pouchtypes.MountPoint{
+		mount := &pouchtypes.MountPoint{
 			Name:        m.Name,
 			Source:      m.Source,
 			Destination: m.Destination,
@@ -372,7 +372,15 @@ func toMountPoints(mounts []dockertypes.MountPoint) ([]*pouchtypes.MountPoint, e
 			Mode:        m.Mode,
 			RW:          m.RW,
 			Propagation: string(m.Propagation),
-		})
+		}
+
+		if !utils.StringInSlice(RemoteDrivers, mount.Driver) {
+			// change volume to bind, unset volume info
+			mount.Name = ""
+			mount.Driver = ""
+		}
+
+		pouchMounts = append(pouchMounts, mount)
 	}
 
 	return pouchMounts, nil
