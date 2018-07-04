@@ -14,6 +14,11 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
+var (
+	// RemoteDrivers specify remote disk drivers
+	RemoteDrivers = []string{"ultron"}
+)
+
 // ToPouchContainerMeta coverts docker container config to pouch container config.
 func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, error) {
 	if meta == nil {
@@ -39,14 +44,14 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		HostsPath:      "",
 		ResolvConfPath: "",
 
-		ID:           meta.ID,
-		Image:        meta.Image,
-		LogPath:      meta.LogPath,
-		MountLabel:   meta.MountLabel,
-		Path:         meta.Path,
-		ProcessLabel: meta.ProcessLabel,
-		RestartCount: int64(meta.RestartCount),
-		Takeover:     true,
+		ID:             meta.ID,
+		Image:          meta.Image,
+		LogPath:        meta.LogPath,
+		MountLabel:     meta.MountLabel,
+		Path:           meta.Path,
+		ProcessLabel:   meta.ProcessLabel,
+		RestartCount:   int64(meta.RestartCount),
+		RootFSProvided: true,
 	}
 
 	// Name
@@ -86,13 +91,6 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		Status:     toContainerStatus(meta.State.Status),
 	}
 
-	// Mounts
-	mountPoints, err := toMountPoints(meta.Mounts)
-	if err != nil {
-		return nil, err
-	}
-	pouchMeta.Mounts = mountPoints
-
 	// Config
 	config, err := toContainerConfig(meta.Config)
 	if err != nil {
@@ -126,9 +124,25 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		return nil, err
 	}
 
+	// Mounts
+	mountPoints, err := toMountPoints(meta.Mounts)
+	if err != nil {
+		return nil, err
+	}
+	pouchMeta.Mounts = mountPoints
+
 	// Convert all mountpoint to bind
 	for _, mount := range mountPoints {
-		bind := fmt.Sprintf("%s:%s", mount.Source, mount.Destination)
+		var bind string
+		if utils.StringInSlice(RemoteDrivers, mount.Driver) {
+			bind = fmt.Sprintf("%s:%s", mount.Name, mount.Destination)
+		} else {
+			bind = fmt.Sprintf("%s:%s", mount.Source, mount.Destination)
+		}
+		if !mount.RW {
+			bind += ":ro"
+		}
+
 		exist := false
 		for _, v := range hostconfig.Binds {
 			if strings.HasPrefix(v, bind) {
@@ -170,7 +184,7 @@ func toContainerStatus(status string) pouchtypes.Status {
 	switch status {
 	case "running":
 		containerStatus = pouchtypes.StatusRunning
-	case "stopped":
+	case "exited":
 		containerStatus = pouchtypes.StatusStopped
 	case "created":
 		containerStatus = pouchtypes.StatusCreated
@@ -350,7 +364,7 @@ func toResources(resources containertypes.Resources) (pouchtypes.Resources, erro
 func toMountPoints(mounts []dockertypes.MountPoint) ([]*pouchtypes.MountPoint, error) {
 	pouchMounts := []*pouchtypes.MountPoint{}
 	for _, m := range mounts {
-		pouchMounts = append(pouchMounts, &pouchtypes.MountPoint{
+		mount := &pouchtypes.MountPoint{
 			Name:        m.Name,
 			Source:      m.Source,
 			Destination: m.Destination,
@@ -358,7 +372,15 @@ func toMountPoints(mounts []dockertypes.MountPoint) ([]*pouchtypes.MountPoint, e
 			Mode:        m.Mode,
 			RW:          m.RW,
 			Propagation: string(m.Propagation),
-		})
+		}
+
+		if !utils.StringInSlice(RemoteDrivers, mount.Driver) {
+			// change volume to bind, unset volume info
+			mount.Name = ""
+			mount.Driver = ""
+		}
+
+		pouchMounts = append(pouchMounts, mount)
 	}
 
 	return pouchMounts, nil

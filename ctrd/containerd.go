@@ -48,7 +48,7 @@ type Ctrd struct {
 func NewCtrd(homeDir string, debug bool) (*Ctrd, error) {
 	ctrd := &Ctrd{
 		homeDir:   homeDir,
-		rpcAddr:   "/tmp/containerd-migrator.socket",
+		rpcAddr:   "/tmp/containerd-migrator.sock",
 		daemonPid: -1,
 	}
 

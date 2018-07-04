@@ -100,7 +100,7 @@ type PouchContainer struct {
 
 	// Specify if the container is taken over by pouch,
 	// or just created by pouch
-	Takeover bool
+	RootFSProvided bool
 }
 
 // NewPouchClient create a client of pouchd.

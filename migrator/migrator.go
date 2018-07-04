@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -37,18 +38,34 @@ import (
 
 // PouchMigrator is a tool to migrate docker containers to pouch containers
 type PouchMigrator struct {
-	debug         bool
-	containerd    *ctrd.Ctrd
-	dockerd       *docker.Dockerd
-	pouchHomeDir  string
-	dockerHomeDir string
-	pouchPkgPath  string
-	dockerPkg     string
+	// debug switch
+	debug bool
+	// if this switch is on, we just run the code, not uninstall docker rpm
+	dryRun bool
 
+	// containerd config
+	containerd *ctrd.Ctrd
+
+	// pouchd home dir
+	pouchHomeDir string
+	// pouch rpm package path, the relative path or absolute path
+	pouchPkgPath string
+
+	// docker config
+	dockerd *docker.Dockerd
+	// dockerd home dir
+	dockerHomeDir string
+	// pouch rpm package name
+	dockerPkg string
+
+	// store map of old UpperDir and new UpperDir
 	upperDirMappingList []*UpperDirMapping
-	allContainers       map[string]bool
-	runningContainers   []string
-	dryRun              bool
+	// store all containers info
+	allContainers map[string]bool
+	// store all running containers
+	runningContainers []string
+	// store all images using by containers
+	images map[string]struct{}
 }
 
 // UpperDirMapping stores overlayfs upperDir map for docker and pouch.
@@ -94,22 +111,6 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug, dryRun bool) (Migra
 		return nil, fmt.Errorf("d2p-migrator only support overlayfs Storage Driver")
 	}
 
-	// if host has remote disk, cannot do migration
-	volumes, err := dockerCli.VolumeList()
-	if err != nil {
-		return nil, err
-	}
-
-	hasRemoteDisk := false
-	for _, v := range volumes.Volumes {
-		if utils.StringInSlice([]string{"ultron"}, v.Driver) {
-			hasRemoteDisk = true
-		}
-	}
-	if hasRemoteDisk {
-		return nil, fmt.Errorf("d2p-migrate not support migrate remote dik")
-	}
-
 	ctrd, err := ctrd.NewCtrd(homeDir, debug)
 	if err != nil {
 		return nil, err
@@ -125,6 +126,7 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug, dryRun bool) (Migra
 		pouchPkgPath:  pouchPkgPath,
 		allContainers: map[string]bool{},
 		dryRun:        dryRun,
+		images:        map[string]struct{}{},
 	}
 
 	return migrator, nil
@@ -136,6 +138,13 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug, dryRun bool) (Migra
 // * set snapshot upperDir, workDir diskquota
 // * convert docker container metaJSON to pouch container metaJSON
 func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) error {
+	// Change pouch config file
+	if _, err := os.Stat("/etc/pouch/config.json"); err == nil {
+		if err := utils.ExecCommand("sed", "-i", fmt.Sprintf(`s|\("home-dir": "\).*|\1%s",|`, p.pouchHomeDir), "/etc/pouch/config.json"); err != nil {
+			logrus.Errorf("failed to change pouch config file: %v", err)
+		}
+	}
+
 	// Get all docker containers on host.
 	containers, err := p.dockerd.ContainerList()
 	if err != nil {
@@ -175,24 +184,32 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) 
 		if err != nil {
 			return err
 		}
-		if len(image.RepoTags) == 0 {
+
+		fmt.Printf("image: %v\n", image)
+
+		var imageName string
+		if len(image.RepoTags) > 0 {
+			imageName = image.RepoTags[0]
+		} else if len(image.RepoDigests) > 0 {
+			imageName = image.RepoDigests[0]
+		} else {
 			return fmt.Errorf("failed to get image %s: repoTags is empty", meta.Image)
 		}
 		// set image to image name
-		pouchMeta.Image = image.RepoTags[0]
-		pouchMeta.Config.Image = image.RepoTags[0]
+		pouchMeta.Image = imageName
+		pouchMeta.Config.Image = imageName
 
 		// prepare for migration
 		if err := p.doPrepare(ctx, pouchMeta, takeOverContainer); err != nil {
 			return err
 		}
 
-		if !takeOverContainer || !(pouchMeta.State.Status == pouchtypes.StatusRunning) {
+		if !takeOverContainer {
 			// change BaseFS
 			pouchMeta.BaseFS = path.Join(p.pouchHomeDir, "containerd/state/io.containerd.runtime.v1.linux/default", meta.ID, "rootfs")
 
-			// Takeover unset
-			pouchMeta.Takeover = false
+			// RootFSProvided unset
+			pouchMeta.RootFSProvided = false
 
 			// store upperDir mapping
 			p.upperDirMappingList = append(p.upperDirMappingList, &UpperDirMapping{
@@ -265,30 +282,48 @@ func (p *PouchMigrator) getOverlayFsDir(ctx context.Context, snapID string) (str
 	return upperDir, workDir, nil
 }
 
+func (p *PouchMigrator) prepareCtrdContainers(ctx context.Context, meta *pouch.PouchContainer) error {
+	// only prepare containerd container for running docker containers
+	if meta.State.Status != pouchtypes.StatusRunning {
+		return nil
+	}
+
+	logrus.Infof("auto take over running container %s, no need convert process", meta.ID)
+	_, err := p.containerd.GetContainer(ctx, meta.ID)
+	if err == nil { // container already exist
+		if err := p.containerd.DeleteContainer(ctx, meta.ID); err != nil {
+			return fmt.Errorf("failed to delete already existed containerd container %s: %v", meta.ID, err)
+		}
+	} else if !errdefs.IsNotFound(err) {
+		return fmt.Errorf("failed to get containerd container: %v", err)
+	}
+
+	return p.containerd.NewContainer(ctx, meta.ID)
+}
+
 // doPrepare prepares image and snapshot by using old container info.
 func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContainer, takeOverContainer bool) error {
-	// Pull image
-	logrus.Infof("Start pull image: %s", meta.Image)
-	if err := p.containerd.PullImage(ctx, meta.Image); err != nil {
-		logrus.Errorf("failed to pull image %s: %v\n", meta.Image, err)
-		return err
+	// check image existance
+	_, imageExist := p.images[meta.Image]
+	if !imageExist {
+		p.images[meta.Image] = struct{}{}
 	}
-	logrus.Infof("End pull image: %s", meta.Image)
 
-	// Stopped containers still need to be converted.
-	if takeOverContainer && meta.State.Status == pouchtypes.StatusRunning {
-		logrus.Infof("auto take over running container %s, no need convert process", meta.ID)
+	// if takeOverContainer set, just prepare containerd containers for running containers
+	if takeOverContainer {
+		return p.prepareCtrdContainers(ctx, meta)
+	}
 
-		_, err := p.containerd.GetContainer(ctx, meta.ID)
-		if err == nil { // container already exist
-			if err := p.containerd.DeleteContainer(ctx, meta.ID); err != nil {
-				return fmt.Errorf("failed to delete already existed containerd container %s: %v", meta.ID, err)
-			}
-		} else if !errdefs.IsNotFound(err) {
-			return fmt.Errorf("failed to get containerd container: %v", err)
+	// Pull image
+	if imageExist {
+		logrus.Infof("image %s has been downloaded, skip pull image", meta.Image)
+	} else {
+		logrus.Infof("Start pull image: %s", meta.Image)
+		if err := p.containerd.PullImage(ctx, meta.Image); err != nil {
+			logrus.Errorf("failed to pull image %s: %v\n", meta.Image, err)
+			return err
 		}
-
-		return p.containerd.NewContainer(ctx, meta.ID)
+		logrus.Infof("End pull image: %s", meta.Image)
 	}
 
 	logrus.Infof("Start prepare snapshot %s", meta.ID)
@@ -429,12 +464,9 @@ func (p *PouchMigrator) Migrate(ctx context.Context, takeOverContainer bool) err
 	// Only mv stopped containers' upperDir
 	// mv oldUpperDir/* newUpperDir/
 	for _, dirMapping := range p.upperDirMappingList {
-		isEmpty, err := utils.IsDirEmpty(dirMapping.srcDir)
-		if err != nil {
-			return err
-		}
-		if isEmpty {
-			continue
+		// TODO(ziren): need more reasonable method
+		if err := utils.ExecCommand("touch", dirMapping.srcDir+"/d2p-migrator.txt"); err != nil {
+			logrus.Errorf("failed to touch d2p-migrator.txt file: %v", err)
 		}
 
 		if err := utils.MoveDir(dirMapping.srcDir, dirMapping.dstDir); err != nil {
@@ -499,7 +531,9 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context, takeOverContainer bool)
 		if err := utils.ExecCommand("setup-bridge", "nat"); err != nil {
 			logrus.Errorf("failed to set nat mode: %v", err)
 		}
+	}
 
+	if !p.dryRun {
 		// Remove docker
 		logrus.Infof("Start to uninstall docker: %s", p.dockerPkg)
 		if err := utils.ExecCommand("yum", "remove", "-y", p.dockerPkg); err != nil {
@@ -514,18 +548,31 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context, takeOverContainer bool)
 		return err
 	}
 
-	// Change pouch config file
-	if err := utils.ExecCommand("sed", "-i", fmt.Sprintf(`s|\("home-dir": "\).*|\1%s",|`, p.pouchHomeDir), "/etc/pouch/config.json"); err != nil {
-		return fmt.Errorf("failed to change pouch config file: %v", err)
-	}
+	// Starting wait pouchd to serve
+	check := make(chan struct{})
+	timeout := make(chan bool, 1)
+	// set timeout to wait pouchd start
+	go func() {
+		time.Sleep(60 * time.Second)
+		timeout <- true
+	}()
 
-	// Restart pouch.service
-	if err := utils.ExecCommand("systemctl", "restart", "pouch"); err != nil {
-		return fmt.Errorf("failed to restart pouch: %v", err)
-	}
+	// check whether pouchd starts success
+	go func() {
+		for {
+			_, err := net.Dial("unix", "/var/run/pouchd.sock")
+			if err == nil {
+				check <- struct{}{}
+			}
+		}
+	}()
 
-	// logrus.Info("wait 20s to start pouch")
-	// time.Sleep(20 * time.Second)
+	select {
+	case <-check:
+		// pouchd has started
+	case <-timeout:
+		return fmt.Errorf("failed to wait pouchd start, timeout")
+	}
 
 	// TODO should specify pouchd socket path
 	pouchCli, err := pouch.NewPouchClient("")
@@ -594,4 +641,55 @@ func (p *PouchMigrator) RevertMigration(ctx context.Context, takeOverContainer b
 // Cleanup does some clean works when migrator exited.
 func (p *PouchMigrator) Cleanup() error {
 	return p.containerd.Cleanup()
+}
+
+// PrepareImages just pull images for containers
+func (p *PouchMigrator) PrepareImages(ctx context.Context) error {
+	// Get all docker containers on host.
+	containers, err := p.dockerd.ContainerList()
+	if err != nil {
+		return fmt.Errorf("failed to get containers list: %v", err)
+	}
+	logrus.Debugf("Get %d containers", len(containers))
+
+	for _, c := range containers {
+		meta, err := p.dockerd.ContainerInspect(c.ID)
+		if err != nil {
+			logrus.Errorf("failed to inspect container %s: %v", c.ID, err)
+			continue
+		}
+
+		image, err := p.dockerd.ImageInspect(meta.Image)
+		if err != nil {
+			logrus.Errorf("failed to inspect image %s: %v", meta.Image, err)
+			continue
+		}
+
+		var imageName string
+		if len(image.RepoTags) > 0 {
+			imageName = image.RepoTags[0]
+		} else if len(image.RepoDigests) > 0 {
+			imageName = image.RepoDigests[0]
+		} else {
+			logrus.Errorf("failed to get image %s: repoTags is empty", meta.Image)
+			continue
+		}
+
+		// check image existance
+		_, imageExist := p.images[imageName]
+		if imageExist {
+			logrus.Infof("image %s has beed downloaded, skip pull image", imageName)
+		} else {
+			p.images[imageName] = struct{}{}
+
+			logrus.Infof("Start pull image: %s", imageName)
+			if err := p.containerd.PullImage(ctx, imageName); err != nil {
+				logrus.Errorf("failed to pull image %s: %v", imageName, err)
+				continue
+			}
+			logrus.Infof("End pull image: %s", imageName)
+		}
+	}
+
+	return nil
 }

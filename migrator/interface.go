@@ -18,4 +18,7 @@ type Migrator interface {
 
 	// Cleanup does some clean works when migrator exited
 	Cleanup() error
+
+	// PrepareImages just pull images for containers
+	PrepareImages(ctx context.Context) error
 }
