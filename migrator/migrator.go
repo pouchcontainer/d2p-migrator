@@ -676,12 +676,10 @@ func (p *PouchMigrator) PrepareImages(ctx context.Context) error {
 		}
 
 		// check image existance
-		_, imageExist := p.images[imageName]
-		if imageExist {
-			logrus.Infof("image %s has beed downloaded, skip pull image", imageName)
+		_, err = p.containerd.GetImage(ctx, imageName)
+		if err == nil {
+			logrus.Infof("image %s has been downloaded, skip pull image", imageName)
 		} else {
-			p.images[imageName] = struct{}{}
-
 			logrus.Infof("Start pull image: %s", imageName)
 			if err := p.containerd.PullImage(ctx, imageName); err != nil {
 				logrus.Errorf("failed to pull image %s: %v", imageName, err)
