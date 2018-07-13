@@ -266,10 +266,13 @@ func toHostConfig(hostconfig *containertypes.HostConfig) (*pouchtypes.HostConfig
 		ExtraHosts: hostconfig.ExtraHosts,
 		GroupAdd:   hostconfig.GroupAdd,
 		// InitScript
-		IpcMode:     string(hostconfig.IpcMode),
-		Isolation:   string(hostconfig.Isolation),
-		Links:       hostconfig.Links,
-		LogConfig:   &pouchtypes.HostConfigAO0LogConfig{},
+		IpcMode:   string(hostconfig.IpcMode),
+		Isolation: string(hostconfig.Isolation),
+		Links:     hostconfig.Links,
+		LogConfig: &pouchtypes.LogConfig{
+			LogDriver: hostconfig.LogConfig.Type,
+			LogOpts:   hostconfig.LogConfig.Config,
+		},
 		NetworkMode: string(hostconfig.NetworkMode),
 		OomScoreAdj: int64(hostconfig.OomScoreAdj),
 		PidMode:     string(hostconfig.PidMode),

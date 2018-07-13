@@ -35,6 +35,9 @@ type ContainerConfig struct {
 	// Command to run specified an array of strings.
 	Cmd []string `json:"Cmd"`
 
+	// Whether to generate the network files(/etc/hostname, /etc/hosts and /etc/resolv.conf) for container.
+	DisableNetworkFiles bool `json:"DisableNetworkFiles,omitempty"`
+
 	// Set disk quota for container
 	DiskQuota map[string]string `json:"DiskQuota,omitempty"`
 
@@ -69,6 +72,9 @@ type ContainerConfig struct {
 
 	// MAC address of the container.
 	MacAddress string `json:"MacAddress,omitempty"`
+
+	// net priority.
+	NetPriority int64 `json:"NetPriority,omitempty"`
 
 	// Disable networking for the container.
 	NetworkDisabled bool `json:"NetworkDisabled,omitempty"`
@@ -126,6 +132,8 @@ type ContainerConfig struct {
 
 /* polymorph ContainerConfig Cmd false */
 
+/* polymorph ContainerConfig DisableNetworkFiles false */
+
 /* polymorph ContainerConfig DiskQuota false */
 
 /* polymorph ContainerConfig Domainname false */
@@ -145,6 +153,8 @@ type ContainerConfig struct {
 /* polymorph ContainerConfig Labels false */
 
 /* polymorph ContainerConfig MacAddress false */
+
+/* polymorph ContainerConfig NetPriority false */
 
 /* polymorph ContainerConfig NetworkDisabled false */
 
