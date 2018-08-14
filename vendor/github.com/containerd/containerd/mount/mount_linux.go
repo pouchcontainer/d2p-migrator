@@ -1,15 +1,48 @@
 package mount
 
 import (
+	"bytes"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"path"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/docker/docker/pkg/reexec"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
+var pagesize = 4096
+
+func init() {
+	pagesize = os.Getpagesize()
+
+	reexec.Register("containerd-mountat", mountAtMain)
+}
+
+type mountOption struct {
+	Source string
+	Target string
+	FsType string
+	Flags  uintptr
+	Data   string
+}
+
 // Mount to the provided target path
 func (m *Mount) Mount(target string) error {
+	var chdir string
+
+	// avoid hitting one page limit of mount argument buffer
+	//
+	// NOTE: 512 is magic number as buffer.
+	if m.Type == "overlay" && lowerdirOptSize(m) > (pagesize-512) {
+		chdir, m = compactLowerdirOption(m)
+	}
+
 	flags, data := parseMountOptions(m.Options)
 
 	// propagation types.
@@ -22,7 +55,7 @@ func (m *Mount) Mount(target string) error {
 	if flags&unix.MS_REMOUNT == 0 || data != "" {
 		// Initial call applying all non-propagation flags for mount
 		// or remount with changed data
-		if err := unix.Mount(m.Source, target, m.Type, uintptr(oflags), data); err != nil {
+		if err := mountAt(chdir, m.Source, target, m.Type, uintptr(oflags), data); err != nil {
 			return err
 		}
 	}
@@ -138,4 +171,164 @@ func parseMountOptions(options []string) (int, string) {
 		}
 	}
 	return flag, strings.Join(data, ",")
+}
+
+// compactLowerdirOption updates overlay lowdir option and returns the common
+// dir in the all the lowdirs.
+func compactLowerdirOption(m *Mount) (string, *Mount) {
+	idx, dirs := findOverlayLowerdirs(m)
+	// no need to compact if there is only one lowerdir
+	if idx == -1 || len(dirs) == 1 {
+		return "", m
+	}
+
+	// find out common dir
+	commondir := longestCommonPrefix(dirs)
+	if commondir == "" {
+		return "", m
+	}
+
+	// NOTE: the snapshot id is based on digits. in order to avoid to get
+	// snapshots/x, need to back to parent snapshots dir. however, there is
+	// assumption that the common dir is ${root}/io.containerd.v1.overlayfs.
+	commondir = path.Dir(commondir)
+	if commondir == "/" {
+		return "", m
+	}
+	commondir = commondir + "/"
+
+	newdirs := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		newdirs = append(newdirs, dir[len(commondir):])
+	}
+
+	m.Options = append(m.Options[:idx], m.Options[idx+1:]...)
+	m.Options = append(m.Options, fmt.Sprintf("lowerdir=%s", strings.Join(newdirs, ":")))
+	return commondir, m
+}
+
+// lowerdirOptSize returns the bytes of lowerdir option.
+func lowerdirOptSize(m *Mount) int {
+	for _, opt := range m.Options {
+		if strings.HasPrefix(opt, "lowerdir=") {
+			return len(opt)
+		}
+	}
+	return 0
+}
+
+// findOverlayLowerdirs returns the index of lowerdir in mount's options and
+// all the lowerdir target.
+func findOverlayLowerdirs(m *Mount) (int, []string) {
+	var (
+		idx    = -1
+		prefix = "lowerdir="
+	)
+
+	for i, opt := range m.Options {
+		if strings.HasPrefix(opt, prefix) {
+			idx = i
+			break
+		}
+	}
+
+	if idx == -1 {
+		return -1, nil
+	}
+	return idx, strings.Split(m.Options[idx][len(prefix):], ":")
+}
+
+// longestCommonPrefix finds the longest common prefix in the string slice.
+func longestCommonPrefix(strs []string) string {
+	if len(strs) == 0 {
+		return ""
+	} else if len(strs) == 1 {
+		return strs[0]
+	}
+
+	// find out the min/max value by alphabetical order
+	min, max := strs[0], strs[0]
+	for _, str := range strs[1:] {
+		if min > str {
+			min = str
+		}
+		if max < str {
+			max = str
+		}
+	}
+
+	// find out the common part between min and max
+	for i := 0; i < len(min) && i < len(max); i++ {
+		if min[i] != max[i] {
+			return min[:i]
+		}
+	}
+	return min
+}
+
+// mountAtMain acts like execute binary.
+func mountAtMain() {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	flag.Parse()
+	if err := os.Chdir(flag.Arg(0)); err != nil {
+		fatal(err)
+	}
+
+	var opt mountOption
+	if err := json.NewDecoder(os.Stdin).Decode(&opt); err != nil {
+		fatal(err)
+	}
+
+	if err := unix.Mount(opt.Source, opt.Target, opt.FsType, opt.Flags, opt.Data); err != nil {
+		fatal(err)
+	}
+	os.Exit(0)
+}
+
+// mountAt will re-exec mountAtMain to change work dir if necessary.
+func mountAt(chdir string, source, target, ftype string, flags uintptr, data string) error {
+	if chdir == "" {
+		return unix.Mount(source, target, ftype, flags, data)
+	}
+
+	opt := mountOption{
+		Source: source,
+		Target: target,
+		FsType: ftype,
+		Flags:  flags,
+		Data:   data,
+	}
+
+	cmd := reexec.Command("containerd-mountat", chdir)
+
+	w, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("mountat error on open stdin pipe: %v", err)
+	}
+
+	out := bytes.NewBuffer(nil)
+	cmd.Stdout, cmd.Stderr = out, out
+
+	if err := cmd.Start(); err != nil {
+		w.Close()
+		return fmt.Errorf("mountat error on start cmd: %v", err)
+	}
+
+	if err := json.NewEncoder(w).Encode(opt); err != nil {
+		w.Close()
+		return fmt.Errorf("mountat json-encode option into pipe failed: %v", err)
+	}
+
+	w.Close()
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("mountat error: %v: combined output: %v", err, out)
+	}
+	return nil
+}
+
+func fatal(v interface{}) {
+	fmt.Fprint(os.Stderr, v)
+	os.Exit(1)
 }

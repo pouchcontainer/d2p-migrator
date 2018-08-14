@@ -124,6 +124,13 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		return nil, err
 	}
 
+	// If the LogConfig.LogDriver is empty but the LogPath is not empty,
+	// We should set the LogDriver to json-file
+	if hostconfig.LogConfig.LogDriver == "" && pouchMeta.LogPath != "" {
+		hostconfig.LogConfig.LogDriver = "json-file"
+		// TODO: LogOpts passed but not used right now
+	}
+
 	// Mounts
 	mountPoints, err := toMountPoints(meta.Mounts)
 	if err != nil {
