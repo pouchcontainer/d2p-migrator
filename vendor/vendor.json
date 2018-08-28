@@ -21,16 +21,80 @@
 			"revisionTime": "2017-08-10T14:37:23Z"
 		},
 		{
-			"checksumSHA1": "trGyNZMT5vfFba+07bVBLstwGks=",
+			"checksumSHA1": "nC9t/ecs0A6iCqWsmg+Ub9yaRB8=",
 			"path": "github.com/alibaba/pouch/apis/types",
-			"revision": "5a7236df86e2a408f1aabf5b3a4b5765c4d3c4ae",
-			"revisionTime": "2018-05-13T11:46:48Z"
+			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
+			"revisionTime": "2018-07-13T02:48:42Z",
+			"version": "1.0.0.rc1",
+			"versionExact": "1.0.0.rc1"
 		},
 		{
-			"checksumSHA1": "W+QL9yF68QBn2Ee10TZwmgLZ378=",
+			"checksumSHA1": "aaKwffeDYMxWLdPu7lv+/XePpME=",
 			"path": "github.com/alibaba/pouch/client",
-			"revision": "144830ab4c68e8f64858d9564d04b0057521f662",
-			"revisionTime": "2018-05-24T15:04:56Z"
+			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
+			"revisionTime": "2018-07-13T02:48:42Z",
+			"version": "1.0.0.rc1",
+			"versionExact": "1.0.0.rc1"
+		},
+		{
+			"checksumSHA1": "7zeK/i6NR599txLHoT0Bzsjn+Yg=",
+			"path": "github.com/alibaba/pouch/pkg/bytefmt",
+			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
+			"revisionTime": "2018-07-13T02:48:42Z",
+			"version": "1.0.0.rc1",
+			"versionExact": "1.0.0.rc1"
+		},
+		{
+			"checksumSHA1": "GVyZWgBj7gyngao/dDCkyx7RDFc=",
+			"path": "github.com/alibaba/pouch/pkg/exec",
+			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
+			"revisionTime": "2018-07-13T02:48:42Z",
+			"version": "1.0.0.rc1",
+			"versionExact": "1.0.0.rc1"
+		},
+		{
+			"checksumSHA1": "T0A9rXM71IEMpNrcVLro+iTRJ2w=",
+			"path": "github.com/alibaba/pouch/pkg/httputils",
+			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
+			"revisionTime": "2018-07-13T02:48:42Z",
+			"version": "1.0.0.rc1",
+			"versionExact": "1.0.0.rc1"
+		},
+		{
+			"checksumSHA1": "sjzfywOmwaIG3tZWeoMse97ngVc=",
+			"path": "github.com/alibaba/pouch/pkg/kernel",
+			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
+			"revisionTime": "2018-07-13T02:48:42Z",
+			"version": "1.0.0.rc1",
+			"versionExact": "1.0.0.rc1"
+		},
+		{
+			"checksumSHA1": "81Yi9qaX+pSZqr0NoF1XXnplG4k=",
+			"path": "github.com/alibaba/pouch/pkg/reference",
+			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
+			"revisionTime": "2018-07-13T02:48:42Z",
+			"version": "1.0.0.rc1",
+			"versionExact": "1.0.0.rc1"
+		},
+		{
+			"checksumSHA1": "NUt5m11l27jh9VadwHULABiQIWA=",
+			"path": "github.com/alibaba/pouch/pkg/utils",
+			"revision": "a49b090803000ae40ef24d7d0b8c8aad48f77a3b",
+			"revisionTime": "2018-07-13T03:43:20Z"
+		},
+		{
+			"checksumSHA1": "5M8SA19T/BWjcfUo0HEtcMr/F14=",
+			"path": "github.com/alibaba/pouch/pkg/utils/filters",
+			"revision": "a49b090803000ae40ef24d7d0b8c8aad48f77a3b",
+			"revisionTime": "2018-07-13T03:43:20Z"
+		},
+		{
+			"checksumSHA1": "exINH898Q+6bv4gkND+GbZ8s8AQ=",
+			"path": "github.com/alibaba/pouch/storage/quota",
+			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
+			"revisionTime": "2018-07-13T02:48:42Z",
+			"version": "1.0.0.rc1",
+			"versionExact": "1.0.0.rc1"
 		},
 		{
 			"checksumSHA1": "kChwmKazQLFun0USpBail+TyUYI=",
@@ -399,6 +463,12 @@
 			"revision": ""
 		},
 		{
+			"checksumSHA1": "JOgERxEIEiFk4AN0IielftEFKmY=",
+			"path": "github.com/contiv/executor",
+			"revision": "d263f4daa3ad0ab942bf44099bd28ec8ca1f8a59",
+			"revisionTime": "2018-06-26T23:32:36Z"
+		},
+		{
 			"checksumSHA1": "Gj+xR1VgFKKmFXYOJMnAczC3Znk=",
 			"path": "github.com/docker/distribution/digestset",
 			"revision": "83389a148052d74ac602f5f1d62f86ff2f3c4aa5",
@@ -409,6 +479,12 @@
 			"path": "github.com/docker/distribution/reference",
 			"revision": "83389a148052d74ac602f5f1d62f86ff2f3c4aa5",
 			"revisionTime": "2018-03-27T20:24:08Z"
+		},
+		{
+			"checksumSHA1": "Ad8LPSCP9HctFrmskh+S5HpHXcs=",
+			"path": "github.com/docker/docker/pkg/reexec",
+			"revision": "f9470d8189e25c297c6c7bd9ac592b6e5acd951e",
+			"revisionTime": "2018-07-12T22:25:46Z"
 		},
 		{
 			"checksumSHA1": "IyBDGu6XZVjiyzl94LEpKuX8QX0=",

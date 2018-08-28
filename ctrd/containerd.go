@@ -280,8 +280,13 @@ func (ctrd *Ctrd) GetContainer(ctx context.Context, id string) (containers.Conta
 
 // DeleteContainer deletes a containerd container
 func (ctrd *Ctrd) DeleteContainer(ctx context.Context, id string) error {
-
 	ctx = namespaces.WithNamespace(ctx, namespaces.Default)
 
 	return ctrd.client.ContainerService().Delete(ctx, id)
+}
+
+// GetImage inspect a containerd image
+func (ctrd *Ctrd) GetImage(ctx context.Context, imageName string) (containerd.Image, error) {
+	ctx = namespaces.WithNamespace(ctx, namespaces.Default)
+	return ctrd.client.GetImage(ctx, imageName)
 }

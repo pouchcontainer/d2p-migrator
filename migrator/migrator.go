@@ -179,22 +179,30 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) 
 			return err
 		}
 
+		var imageName string
 		// meta.Image maybe a digest, we need image name.
+		// if err not equal nil, will return a empty Image Struct
 		image, err := p.dockerd.ImageInspect(meta.Image)
-		if err != nil {
+		if err != nil && strings.Contains(strings.ToLower(err.Error()), "no such image") {
+			// image used by docker container is already deleted
+			imageName = meta.Image
+			logrus.Errorf("image %s used by %s already is already deleted", meta.Image, c.ID)
+		} else if err != nil {
 			return err
 		}
 
-		fmt.Printf("image: %v\n", image)
-
-		var imageName string
+		// check if inspect image info success
 		if len(image.RepoTags) > 0 {
 			imageName = image.RepoTags[0]
 		} else if len(image.RepoDigests) > 0 {
 			imageName = image.RepoDigests[0]
-		} else {
+		}
+
+		// check if get image success
+		if imageName == "" {
 			return fmt.Errorf("failed to get image %s: repoTags is empty", meta.Image)
 		}
+
 		// set image to image name
 		pouchMeta.Image = imageName
 		pouchMeta.Config.Image = imageName
@@ -517,7 +525,22 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context, takeOverContainer bool)
 
 	// We must first stop the docker before remove it
 	logrus.Infof("Start to stop docker: %s", p.dockerPkg)
-	if err := utils.ExecCommand("systemctl", "stop", "docker"); err != nil {
+	stopDocker := make(chan error, 1)
+	go func() {
+		var err error
+		for i := 0; i < 3; i++ {
+			err = utils.ExecCommand("systemctl", "stop", "docker")
+			if err == nil {
+				break
+			}
+
+			logrus.Errorf("failed to stop docker service: %v", err)
+		}
+
+		stopDocker <- err
+	}()
+
+	if err := <-stopDocker; err != nil {
 		return fmt.Errorf("failed to stop docker: %v", err)
 	}
 
@@ -539,6 +562,11 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context, takeOverContainer bool)
 		if err := utils.ExecCommand("yum", "remove", "-y", p.dockerPkg); err != nil {
 			return fmt.Errorf("failed to uninstall docker: %v", err)
 		}
+	}
+
+	// export NO_NAT=yes
+	if err := utils.ExecCommand("export", "NO_NAT=yes"); err != nil {
+		logrus.Errorf("failed export env: %v", err)
 	}
 
 	// Install pouch
@@ -676,12 +704,10 @@ func (p *PouchMigrator) PrepareImages(ctx context.Context) error {
 		}
 
 		// check image existance
-		_, imageExist := p.images[imageName]
-		if imageExist {
-			logrus.Infof("image %s has beed downloaded, skip pull image", imageName)
+		_, err = p.containerd.GetImage(ctx, imageName)
+		if err == nil {
+			logrus.Infof("image %s has been downloaded, skip pull image", imageName)
 		} else {
-			p.images[imageName] = struct{}{}
-
 			logrus.Infof("Start pull image: %s", imageName)
 			if err := p.containerd.PullImage(ctx, imageName); err != nil {
 				logrus.Errorf("failed to pull image %s: %v", imageName, err)
