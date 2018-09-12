@@ -157,9 +157,7 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) 
 		return nil
 	}
 
-	var (
-		containersDir = path.Join(p.pouchHomeDir, "containers")
-	)
+	containersDir := path.Join(p.pouchHomeDir, "containers")
 
 	for _, c := range containers {
 		p.allContainers[c.ID] = false
@@ -178,34 +176,6 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) 
 		if err != nil {
 			return err
 		}
-
-		var imageName string
-		// meta.Image maybe a digest, we need image name.
-		// if err not equal nil, will return a empty Image Struct
-		image, err := p.dockerd.ImageInspect(meta.Image)
-		if err != nil && strings.Contains(strings.ToLower(err.Error()), "no such image") {
-			// image used by docker container is already deleted
-			imageName = meta.Image
-			logrus.Errorf("image %s used by %s already is already deleted", meta.Image, c.ID)
-		} else if err != nil {
-			return err
-		}
-
-		// check if inspect image info success
-		if len(image.RepoTags) > 0 {
-			imageName = image.RepoTags[0]
-		} else if len(image.RepoDigests) > 0 {
-			imageName = image.RepoDigests[0]
-		}
-
-		// check if get image success
-		if imageName == "" {
-			return fmt.Errorf("failed to get image %s: repoTags is empty", meta.Image)
-		}
-
-		// set image to image name
-		pouchMeta.Image = imageName
-		pouchMeta.Config.Image = imageName
 
 		// prepare for migration
 		if err := p.doPrepare(ctx, pouchMeta, takeOverContainer); err != nil {
@@ -312,9 +282,10 @@ func (p *PouchMigrator) prepareCtrdContainers(ctx context.Context, meta *pouch.P
 // doPrepare prepares image and snapshot by using old container info.
 func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContainer, takeOverContainer bool) error {
 	// check image existance
-	_, imageExist := p.images[meta.Image]
+	img := meta.Config.Image
+	_, imageExist := p.images[img]
 	if !imageExist {
-		p.images[meta.Image] = struct{}{}
+		p.images[img] = struct{}{}
 	}
 
 	// if takeOverContainer set, just prepare containerd containers for running containers
@@ -324,14 +295,14 @@ func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContaine
 
 	// Pull image
 	if imageExist {
-		logrus.Infof("image %s has been downloaded, skip pull image", meta.Image)
+		logrus.Infof("image %s has been downloaded, skip pull image", img)
 	} else {
-		logrus.Infof("Start pull image: %s", meta.Image)
-		if err := p.containerd.PullImage(ctx, meta.Image); err != nil {
-			logrus.Errorf("failed to pull image %s: %v\n", meta.Image, err)
+		logrus.Infof("Start pull image: %s", img)
+		if err := p.containerd.PullImage(ctx, img); err != nil {
+			logrus.Errorf("failed to pull image %s: %v\n", img, err)
 			return err
 		}
-		logrus.Infof("End pull image: %s", meta.Image)
+		logrus.Infof("End pull image: %s", img)
 	}
 
 	logrus.Infof("Start prepare snapshot %s", meta.ID)
@@ -341,7 +312,7 @@ func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContaine
 		p.containerd.RemoveSnapshot(ctx, meta.ID)
 	}
 	// CreateSnapshot for new pouch container
-	if err := p.containerd.CreateSnapshot(ctx, meta.ID, meta.Image); err != nil {
+	if err := p.containerd.CreateSnapshot(ctx, meta.ID, img); err != nil {
 		return err
 	}
 
