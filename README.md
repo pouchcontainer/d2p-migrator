@@ -1,5 +1,7 @@
 # d2p-migrator
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/pouchcontainer/d2p-migrator)](https://goreportcard.com/report/github.com/pouchcontainer/d2p-migrator)
+
 d2p-migrator is a system tool for ops to migrate containers from docker world
 to pouchcontainer world.
 
