@@ -345,7 +345,6 @@ func toResources(resources containertypes.Resources) (pouchtypes.Resources, erro
 		CpusetCpus: resources.CpusetCpus,
 		CpusetMems: resources.CpusetMems,
 		// DeviceCgroupRules
-		// Devices
 		IOMaximumIOps:      resources.IOMaximumIOps,
 		IOMaximumBandwidth: resources.IOMaximumBandwidth,
 
@@ -364,10 +363,44 @@ func toResources(resources containertypes.Resources) (pouchtypes.Resources, erro
 		// NanoCpus
 		OomKillDisable: resources.OomKillDisable,
 		PidsLimit:      resources.PidsLimit,
-		// Ulimits
 	}
 
+	// Devices
+	pouchDevices, err := toDevices(resources.Devices)
+	if err != nil {
+		return pouchtypes.Resources{}, fmt.Errorf("failed to convert Devices: %v", err)
+	}
+	pouchResources.Devices = pouchDevices
+
+	// Ulimits
+	ulimits := []*pouchtypes.Ulimit{}
+	for _, u := range resources.Ulimits {
+		ulimit := &pouchtypes.Ulimit{
+			Hard: u.Hard,
+			Name: u.Name,
+			Soft: u.Soft,
+		}
+
+		ulimits = append(ulimits, ulimit)
+	}
+	pouchResources.Ulimits = ulimits
+
 	return pouchResources, nil
+}
+
+func toDevices(devs []containertypes.DeviceMapping) ([]*pouchtypes.DeviceMapping, error) {
+	pouchDevices := []*pouchtypes.DeviceMapping{}
+	for _, d := range devs {
+		dev := &pouchtypes.DeviceMapping{
+			CgroupPermissions: d.CgroupPermissions,
+			PathInContainer:   d.PathInContainer,
+			PathOnHost:        d.PathOnHost,
+		}
+
+		pouchDevices = append(pouchDevices, dev)
+	}
+
+	return pouchDevices, nil
 }
 
 // TODO How to let pouch manager docker's volumes
