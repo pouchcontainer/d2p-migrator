@@ -9,8 +9,8 @@ import (
 	"github.com/pouchcontainer/d2p-migrator/ctrd"
 	"github.com/pouchcontainer/d2p-migrator/migrator"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/pkg/reexec"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )

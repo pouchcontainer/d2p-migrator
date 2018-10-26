@@ -17,11 +17,11 @@ import (
 	"github.com/pouchcontainer/d2p-migrator/pouch"
 	"github.com/pouchcontainer/d2p-migrator/utils"
 
-	"github.com/Sirupsen/logrus"
 	pouchtypes "github.com/alibaba/pouch/apis/types"
 	"github.com/alibaba/pouch/storage/quota"
 	"github.com/containerd/containerd/errdefs"
 	dockerCli "github.com/docker/engine-api/client"
+	"github.com/sirupsen/logrus"
 )
 
 // Actions that PouchMigrator migration does.
@@ -66,6 +66,9 @@ type PouchMigrator struct {
 	runningContainers []string
 	// store all images using by containers
 	images map[string]struct{}
+
+	// volumeStore represents store of volumes
+	volumeStore *Store
 }
 
 // UpperDirMapping stores overlayfs upperDir map for docker and pouch.
@@ -116,6 +119,11 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug, dryRun bool) (Migra
 		return nil, err
 	}
 
+	store, err := NewStore(path.Join(homeDir, "volume"))
+	if err != nil {
+		return nil, err
+	}
+
 	migrator := &PouchMigrator{
 		debug:         debug,
 		containerd:    ctrd,
@@ -127,6 +135,7 @@ func NewPouchMigrator(dockerPkg, pouchPkgPath string, debug, dryRun bool) (Migra
 		allContainers: map[string]bool{},
 		dryRun:        dryRun,
 		images:        map[string]struct{}{},
+		volumeStore:   store,
 	}
 
 	return migrator, nil
@@ -153,15 +162,28 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) 
 	logrus.Debugf("Get %d containers", len(containers))
 
 	if len(containers) == 0 {
-		logrus.Info(" === No containers on host, no need migrations === ")
+		logrus.Info("Empty host, no need covert containers")
 		return nil
 	}
 
-	containersDir := path.Join(p.pouchHomeDir, "containers")
+	// Get all volumes on host.
+	dockerVolumes, err := p.dockerd.VolumeList()
+	if err != nil {
+		return fmt.Errorf("failed to get volumes list: %v", err)
+	}
+	pouchVolumes, err := pouch.ToVolumes(dockerVolumes)
+	if err != nil {
+		return err
+	}
+
+	var (
+		// volumeRefs to count volume references
+		volumeRefs    = map[string]string{}
+		containersDir = path.Join(p.pouchHomeDir, "containers")
+	)
 
 	for _, c := range containers {
 		p.allContainers[c.ID] = false
-
 		// TODO: not consider status paused
 		if c.State == "running" {
 			p.runningContainers = append(p.runningContainers, c.ID)
@@ -177,6 +199,11 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) 
 			return err
 		}
 
+		// count container volumes reference
+		if err := ContainerVolumeRefsCount(pouchMeta, volumeRefs); err != nil {
+			logrus.Errorf("failed to count container %s volumes reference: %v", pouchMeta.ID, err)
+		}
+
 		// prepare for migration
 		if err := p.doPrepare(ctx, pouchMeta, takeOverContainer); err != nil {
 			return err
@@ -185,7 +212,6 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) 
 		if !takeOverContainer {
 			// change BaseFS
 			pouchMeta.BaseFS = path.Join(p.pouchHomeDir, "containerd/state/io.containerd.runtime.v1.linux/default", meta.ID, "rootfs")
-
 			// RootFSProvided unset
 			pouchMeta.RootFSProvided = false
 
@@ -200,6 +226,39 @@ func (p *PouchMigrator) PreMigrate(ctx context.Context, takeOverContainer bool) 
 		if err := p.save2Disk(containersDir, pouchMeta); err != nil {
 			return err
 		}
+	}
+
+	// update volumes references
+	for _, vol := range pouchVolumes {
+		refs, ok := volumeRefs[vol.Name]
+		if !ok || refs == "" {
+			continue
+		}
+		vol.Spec.Extra["ref"] = refs
+
+		// since docker volume list api not return alilocal size,
+		// we should use volume inspect api.
+		if vol.Driver() == "alilocal" {
+			volume, err := p.dockerd.VolumeInspect(vol.Name)
+			if err != nil {
+				logrus.Errorf("failed to inspect volume %s: %v", vol.Name, err)
+				continue
+			}
+
+			vol.Spec.Size = getVolumeSize(volume)
+		}
+	}
+
+	// now create volumes
+	if err := p.volumeStore.CreateVolumes(pouchVolumes); err != nil {
+		return fmt.Errorf("failed to create volumes: %v", err)
+	}
+
+	// need to close the boltdb after created volumes,
+	// otherwise, pouchd cannot start because the volume
+	// store initialize failed
+	if err := p.volumeStore.Shutdown(); err != nil {
+		logrus.Errorf("failed to close volume store: %v", err)
 	}
 
 	logrus.Infof("running containers: %v", p.runningContainers)
@@ -515,29 +574,12 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context, takeOverContainer bool)
 		return fmt.Errorf("failed to stop docker: %v", err)
 	}
 
-	// if dryRun set or take over old container, just test the code, not remove the package
-	if !p.dryRun && !takeOverContainer {
-		// Change docker bridge mode to nat mode
-		logrus.Infof("Start change docker net mode from bridge to nat")
-		if err := utils.ExecCommand("setup-bridge", "stop"); err != nil {
-			logrus.Errorf("failed to stop bridge nat: %v", err)
-		}
-		if err := utils.ExecCommand("setup-bridge", "nat"); err != nil {
-			logrus.Errorf("failed to set nat mode: %v", err)
-		}
-	}
-
 	if !p.dryRun {
 		// Remove docker
 		logrus.Infof("Start to uninstall docker: %s", p.dockerPkg)
 		if err := utils.ExecCommand("yum", "remove", "-y", p.dockerPkg); err != nil {
 			return fmt.Errorf("failed to uninstall docker: %v", err)
 		}
-	}
-
-	// export NO_NAT=yes
-	if err := utils.ExecCommand("export", "NO_NAT=yes"); err != nil {
-		logrus.Errorf("failed export env: %v", err)
 	}
 
 	// Install pouch
@@ -570,7 +612,7 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context, takeOverContainer bool)
 	case <-check:
 		// pouchd has started
 	case <-timeout:
-		return fmt.Errorf("failed to wait pouchd start, timeout")
+		return fmt.Errorf("failed to wait pouchd start, 60s timeout")
 	}
 
 	// TODO should specify pouchd socket path
@@ -580,7 +622,7 @@ func (p *PouchMigrator) PostMigrate(ctx context.Context, takeOverContainer bool)
 		return err
 	}
 
-	logrus.Infof("Has %d containers being deleted", len(deletedContainers))
+	logrus.Infof("%d containers have been deleted", len(deletedContainers))
 	for _, c := range deletedContainers {
 		if err := pouchCli.ContainerRemove(ctx, c, &pouchtypes.ContainerRemoveOptions{Force: true}); err != nil {
 			if !strings.Contains(err.Error(), "not found") {
