@@ -14,11 +14,6 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-var (
-	// RemoteDrivers specify remote disk drivers
-	RemoteDrivers = []string{"ultron"}
-)
-
 // ToPouchContainerMeta coverts docker container config to pouch container config.
 func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, error) {
 	if meta == nil {
@@ -75,8 +70,7 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		Data: meta.GraphDriver.Data,
 	}
 
-	// State: converted container is stopped
-
+	// State: converted container status
 	pouchMeta.State = &pouchtypes.ContainerState{
 		Dead:       meta.State.Dead,
 		Error:      meta.State.Error,
@@ -137,31 +131,6 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, err
 		return nil, err
 	}
 	pouchMeta.Mounts = mountPoints
-
-	// Convert all mountpoint to bind
-	for _, mount := range mountPoints {
-		var bind string
-		if utils.StringInSlice(RemoteDrivers, mount.Driver) {
-			bind = fmt.Sprintf("%s:%s", mount.Name, mount.Destination)
-		} else {
-			bind = fmt.Sprintf("%s:%s", mount.Source, mount.Destination)
-		}
-		if !mount.RW {
-			bind += ":ro"
-		}
-
-		exist := false
-		for _, v := range hostconfig.Binds {
-			if strings.HasPrefix(v, bind) {
-				exist = true
-				break
-			}
-		}
-
-		if !exist {
-			hostconfig.Binds = append(hostconfig.Binds, bind)
-		}
-	}
 
 	// TODO: Only works in alidocker
 	ldBind := ""
@@ -231,9 +200,6 @@ func toContainerConfig(config *containertypes.Config) (*pouchtypes.ContainerConf
 		WorkingDir:      config.WorkingDir,
 	}
 
-	// Volumes are all set empty
-	pouchConfig.Volumes = map[string]interface{}{}
-
 	// Convert *int to *int64
 	// pouchConfig.StopTimeout = &(int64(*config.StopTimeout)),
 
@@ -241,6 +207,13 @@ func toContainerConfig(config *containertypes.Config) (*pouchtypes.ContainerConf
 	// DiskQuota
 	// ExposedPorts
 	// InitScript
+
+	// Volumes
+	volumes := map[string]interface{}{}
+	for vol := range config.Volumes {
+		volumes[vol] = struct{}{}
+	}
+	pouchConfig.Volumes = volumes
 
 	// QuotaID
 	if v, exists := pouchConfig.Labels["QuotaId"]; exists {
@@ -320,7 +293,6 @@ func toHostConfig(hostconfig *containertypes.HostConfig) (*pouchtypes.HostConfig
 	if err != nil {
 		return nil, err
 	}
-
 	pouchHostConfig.Resources = resources
 
 	return pouchHostConfig, nil
@@ -403,7 +375,7 @@ func toDevices(devs []containertypes.DeviceMapping) ([]*pouchtypes.DeviceMapping
 	return pouchDevices, nil
 }
 
-// TODO How to let pouch manager docker's volumes
+// toMountPoints takeover all mounts information of container
 func toMountPoints(mounts []dockertypes.MountPoint) ([]*pouchtypes.MountPoint, error) {
 	pouchMounts := []*pouchtypes.MountPoint{}
 	for _, m := range mounts {
@@ -417,12 +389,9 @@ func toMountPoints(mounts []dockertypes.MountPoint) ([]*pouchtypes.MountPoint, e
 			Propagation: string(m.Propagation),
 		}
 
-		if !utils.StringInSlice(RemoteDrivers, mount.Driver) {
-			// change volume to bind, unset volume info
-			mount.Name = ""
-			mount.Driver = ""
+		if utils.StringInSlice([]string{"alilocal", "ultron"}, mount.Driver) {
+			mount.Named = true
 		}
-
 		pouchMounts = append(pouchMounts, mount)
 	}
 

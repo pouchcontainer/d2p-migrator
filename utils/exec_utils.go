@@ -3,7 +3,7 @@ package utils
 import (
 	"os/exec"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 // ExecCommand is a wrapper of exec Command

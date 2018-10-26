@@ -48,8 +48,19 @@ func (d *Dockerd) Info() (types.Info, error) {
 }
 
 // VolumeList lists all volumes on host
-func (d *Dockerd) VolumeList() (types.VolumesListResponse, error) {
-	return d.client.VolumeList(context.Background(), filters.NewArgs())
+func (d *Dockerd) VolumeList() ([]*types.Volume, error) {
+	resp, err := d.client.VolumeList(context.Background(), filters.NewArgs())
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Volumes, nil
+}
+
+// VolumeInspect get a volume info
+func (d *Dockerd) VolumeInspect(volumeID string) (types.Volume, error) {
+	volume, _, err := d.client.VolumeInspectWithRaw(context.Background(), volumeID)
+	return volume, err
 }
 
 // ContainerStop stops a container.
