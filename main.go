@@ -18,14 +18,12 @@ import (
 
 // Config of pouch-migrator
 type Config struct {
-	DockerPkg                   string
-	PouchPkgPath                string
-	MigrateAll                  bool
-	Debug                       bool
-	ImageProxy                  string
-	AutoTakeoverDockerContainer bool
-	DryRun                      bool
-	PrepareImage                bool
+	DockerRpmName string
+	PouchRpmPath  string
+	MigrateAll    bool
+	ImageProxy    string
+	LiveMigrate   bool
+	PrepareImage  bool
 }
 
 var (
@@ -39,7 +37,7 @@ func main() {
 	}
 
 	var cmdServe = &cobra.Command{
-		Use:          "pouch-migrator",
+		Use:          "d2p-migrator",
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -60,10 +58,8 @@ func main() {
 
 // initLog initializes log Level and log format of daemon.
 func initLog() {
-	if cfg.Debug {
-		logrus.SetLevel(logrus.DebugLevel)
-		logrus.Infof("start daemon at debug level")
-	}
+	logrus.SetLevel(logrus.DebugLevel)
+	logrus.Infof("start daemon at debug level")
 
 	formatter := &logrus.TextFormatter{
 		FullTimestamp:   true,
@@ -75,12 +71,10 @@ func initLog() {
 func setupFlags(cmd *cobra.Command) {
 	flagSet := cmd.Flags()
 
-	flagSet.StringVar(&cfg.DockerPkg, "docker-pkg", "docker", "Specify docker package name")
-	flagSet.StringVar(&cfg.PouchPkgPath, "pouch-pkg-path", "pouch", "Specify pouch package file path")
+	flagSet.StringVar(&cfg.DockerRpmName, "docker-pkg", "docker", "Specify docker package name")
+	flagSet.StringVar(&cfg.PouchRpmPath, "pouch-pkg-path", "pouch", "Specify pouch package file path")
 	flagSet.BoolVar(&cfg.MigrateAll, "migrate-all", false, "If true, do all migration things, otherwise, just prepare data for migration")
-	flagSet.BoolVarP(&cfg.Debug, "debug", "D", false, "DEBUG mode log level")
-	flagSet.BoolVar(&cfg.DryRun, "dry-run", false, "we will not remove docker package, if dry-run flag set")
-	flagSet.BoolVar(&cfg.AutoTakeoverDockerContainer, "auto-takeover-docker-container", false, "auto takeover docker running containers which are under alibaba/containerd 0.2.4 when migrating Docker to PouchContainer")
+	flagSet.BoolVar(&cfg.LiveMigrate, "live-migrate", false, "auto takeover the docker running containers when migration, which will not affect the whole containers at all")
 	flagSet.StringVar(&cfg.ImageProxy, "image-proxy", "", "Http proxy to pull image")
 	flagSet.BoolVar(&cfg.PrepareImage, "pull-images", false, "if this flag set, we will just pull container images")
 	flagSet.BoolVarP(&printVersion, "version", "v", false, "Print d2p-migrator version")
@@ -111,20 +105,26 @@ func runCmd() error {
 	}
 
 	ctx := context.Background()
-
-	migrator, err := migrator.NewPouchMigrator(cfg.DockerPkg, cfg.PouchPkgPath, cfg.Debug, cfg.DryRun)
+	migratorCfg := migrator.Config{
+		Type:          "cold-migrate",
+		DockerRpmName: cfg.DockerRpmName,
+		PouchRpmPath:  cfg.PouchRpmPath,
+	}
+	if cfg.LiveMigrate {
+		migratorCfg.Type = "live-migrate"
+	}
+	migrator, err := migrator.NewD2pMigrator(migratorCfg)
 	if err != nil {
 		logrus.Errorf("failed to new pouch migrator: %v\n", err)
 		return err
 	}
-
 	defer migrator.Cleanup()
 
 	if cfg.PrepareImage {
 		return migrator.PrepareImages(ctx)
 	}
 
-	if err := migrator.PreMigrate(ctx, cfg.AutoTakeoverDockerContainer); err != nil {
+	if err := migrator.PreMigrate(ctx); err != nil {
 		logrus.Errorf("failed to execute PreMigrage: %v", err)
 		return err
 	}
@@ -140,7 +140,7 @@ func runCmd() error {
 		if needRevert {
 			logrus.Info("Migration has failed, start revert...")
 
-			if err := migrator.RevertMigration(ctx, cfg.AutoTakeoverDockerContainer); err != nil {
+			if err := migrator.RevertMigration(ctx); err != nil {
 				logrus.Errorf("failed to revert migration: %v", err)
 				return
 			}
@@ -149,14 +149,14 @@ func runCmd() error {
 		}
 	}()
 
-	if err := migrator.Migrate(ctx, cfg.AutoTakeoverDockerContainer); err != nil {
+	if err := migrator.Migrate(ctx); err != nil {
 		logrus.Errorf("failed to migrate: %v\n", err)
 		needRevert = true
 		return err
 	}
 
 	// If PostMigrate failed, should handle by manual.
-	if err := migrator.PostMigrate(ctx, cfg.AutoTakeoverDockerContainer); err != nil {
+	if err := migrator.PostMigrate(ctx); err != nil {
 		logrus.Errorf("PostMigrate error: %v, need handle by manual!!!", err)
 		return err
 	}

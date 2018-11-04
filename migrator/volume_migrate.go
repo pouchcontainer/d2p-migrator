@@ -7,12 +7,62 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/pouchcontainer/d2p-migrator/pouch"
+	"github.com/pouchcontainer/d2p-migrator/docker"
+	localtypes "github.com/pouchcontainer/d2p-migrator/pouch/types"
 
 	"github.com/alibaba/pouch/pkg/meta"
 	volumetypes "github.com/alibaba/pouch/storage/volume/types"
 	dockertypes "github.com/docker/engine-api/types"
+	"github.com/sirupsen/logrus"
 )
+
+// PrepareVolumes put volumes info into pouch volume store.
+func PrepareVolumes(homeDir string, volumes []*volumetypes.Volume, volumeRefs map[string]string) error {
+	// init a docker client
+	dockerCli, err := docker.NewDockerd()
+	if err != nil {
+		return err
+	}
+
+	store, err := NewStore(path.Join(homeDir, "volume"))
+	if err != nil {
+		return err
+	}
+
+	// update volumes references
+	for _, vol := range volumes {
+		refs, ok := volumeRefs[vol.Name]
+		if !ok || refs == "" {
+			continue
+		}
+		vol.Spec.Extra["ref"] = refs
+
+		// since docker volume list api not return alilocal size,
+		// we should use volume inspect api.
+		if vol.Driver() == "alilocal" {
+			volume, err := dockerCli.VolumeInspect(vol.Name)
+			if err != nil {
+				logrus.Errorf("failed to inspect volume %s: %v", vol.Name, err)
+				continue
+			}
+			vol.Spec.Size = getVolumeSize(volume)
+		}
+	}
+
+	// now create volumes
+	if err := store.CreateVolumes(volumes); err != nil {
+		return fmt.Errorf("failed to create volumes: %v", err)
+	}
+
+	// need to close the boltdb after created volumes,
+	// otherwise, pouchd cannot start because the volume
+	// store initialize failed
+	if err := store.Shutdown(); err != nil {
+		logrus.Errorf("failed to close volume store: %v", err)
+	}
+
+	return nil
+}
 
 // Store is a store of volume
 type Store struct {
@@ -64,7 +114,7 @@ func (s *Store) Shutdown() error {
 }
 
 // ContainerVolumeRefsCount count a container's reference to volumes
-func ContainerVolumeRefsCount(c *pouch.PouchContainer, volumeRefs map[string]string) error {
+func ContainerVolumeRefsCount(c *localtypes.Container, volumeRefs map[string]string) error {
 	for _, mount := range c.Mounts {
 		if mount.Driver == "" {
 			continue

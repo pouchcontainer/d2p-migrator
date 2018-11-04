@@ -3,6 +3,7 @@
 package ctrd
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,6 +11,11 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
+
+	pouchtypes "github.com/alibaba/pouch/apis/types"
+	"github.com/containerd/containerd/remotes"
+	"github.com/containerd/containerd/remotes/docker"
 )
 
 var proxy string
@@ -17,6 +23,51 @@ var proxy string
 // SetImageProxy sets value of image http proxy
 func SetImageProxy(p string) {
 	proxy = p
+}
+
+func resolver(authConfig *pouchtypes.AuthConfig) (remotes.Resolver, error) {
+	var (
+		// TODO
+		username  = ""
+		secret    = ""
+		plainHTTP = false
+		refresh   = ""
+		insecure  = false
+	)
+
+	// FIXME
+	_ = refresh
+
+	options := docker.ResolverOptions{
+		PlainHTTP: plainHTTP,
+		Tracker:   docker.NewInMemoryTracker(),
+	}
+	options.Credentials = func(host string) (string, string, error) {
+		// Only one host
+		return username, secret, nil
+	}
+
+	tr := &http.Transport{
+		Proxy: proxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+		MaxIdleConns:        10,
+		IdleConnTimeout:     30 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: insecure,
+		},
+		ExpectContinueTimeout: 5 * time.Second,
+	}
+
+	options.Client = &http.Client{
+		Transport: tr,
+	}
+
+	return docker.NewResolver(options), nil
 }
 
 func proxyFromEnvironment(req *http.Request) (*url.URL, error) {
