@@ -15,7 +15,6 @@ DEFAULT_LDFLAGS="-X ${VERSION_PKG}/version.GitCommit=${GIT_COMMIT} \
 		  -X ${VERSION_PKG}/version.Version=${VERSION} \
 		  -X ${VERSION_PKG}/version.BuildTime=${BUILD_TIME}"
 
-
 .PHONY: test
 test: lint
 	@echo $@
@@ -23,13 +22,12 @@ test: lint
 
 .PHONY: lint
 lint:
-	@golint ./... | grep -Fv 'vendor/'
+	@golint $(PKGS)
 
 .PHONY: linux
 linux:
 	@mkdir -p bin
 	@GOOS=linux $(GOBUILD) -ldflags ${DEFAULT_LDFLAGS} -o bin/$(BINARY)
-GOBUILD=go build
 
 .PHONY: build
 build: linux
