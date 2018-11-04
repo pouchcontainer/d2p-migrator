@@ -8,6 +8,7 @@ import (
 
 	"github.com/pouchcontainer/d2p-migrator/ctrd"
 	"github.com/pouchcontainer/d2p-migrator/migrator"
+	"github.com/pouchcontainer/d2p-migrator/version"
 
 	"github.com/docker/docker/pkg/reexec"
 	"github.com/sirupsen/logrus"
@@ -27,7 +28,10 @@ type Config struct {
 	PrepareImage                bool
 }
 
-var cfg = &Config{}
+var (
+	printVersion bool
+	cfg          = &Config{}
+)
 
 func main() {
 	if reexec.Init() {
@@ -79,6 +83,7 @@ func setupFlags(cmd *cobra.Command) {
 	flagSet.BoolVar(&cfg.AutoTakeoverDockerContainer, "auto-takeover-docker-container", false, "auto takeover docker running containers which are under alibaba/containerd 0.2.4 when migrating Docker to PouchContainer")
 	flagSet.StringVar(&cfg.ImageProxy, "image-proxy", "", "Http proxy to pull image")
 	flagSet.BoolVar(&cfg.PrepareImage, "pull-images", false, "if this flag set, we will just pull container images")
+	flagSet.BoolVarP(&printVersion, "version", "v", false, "Print d2p-migrator version")
 }
 
 func parseFlags(cmd *cobra.Command, flags []string) {
@@ -95,6 +100,11 @@ func parseFlags(cmd *cobra.Command, flags []string) {
 func runCmd() error {
 	// initialize log
 	initLog()
+	//user specifies --version or -v, print version and return.
+	if printVersion {
+		fmt.Printf("d2p-migrator version: %s, build: %s, build at: %s\n", version.Version, version.GitCommit, version.BuildTime)
+		return nil
+	}
 
 	if cfg.ImageProxy != "" {
 		ctrd.SetImageProxy(cfg.ImageProxy)
