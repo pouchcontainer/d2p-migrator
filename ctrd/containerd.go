@@ -2,17 +2,13 @@ package ctrd
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path"
 	"runtime"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/pouchcontainer/d2p-migrator/utils"
 
@@ -25,81 +21,42 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/remotes"
-	"github.com/containerd/containerd/remotes/docker"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/opencontainers/image-spec/identity"
 )
 
 const (
 	defaultSnapshotterName = "overlayfs"
+	socketAddr             = "/tmp/containerd-migrator.sock"
 )
 
-// Ctrd is a wrapper client for containerd grpc client.
-type Ctrd struct {
-	client    *containerd.Client
-	lease     *containerd.Lease
-	daemonPid int
-	rpcAddr   string
-	homeDir   string
-}
-
-// NewCtrd create a new Ctrd instance.
-func NewCtrd(homeDir string, debug bool) (*Ctrd, error) {
-	ctrd := &Ctrd{
-		homeDir:   homeDir,
-		rpcAddr:   "/tmp/containerd-migrator.sock",
-		daemonPid: -1,
-	}
-
+// StartContainerd create a new containerd instance.
+func StartContainerd(homeDir string, debug bool) (int, error) {
 	// if socket file exists, delete it.
-	if _, err := os.Stat(ctrd.rpcAddr); err == nil {
-		os.RemoveAll(ctrd.rpcAddr)
+	if _, err := os.Stat(socketAddr); err == nil {
+		os.RemoveAll(socketAddr)
 	}
 
 	containerdPath, err := exec.LookPath("/usr/local/bin/containerd")
 	if err != nil {
-		return nil, fmt.Errorf("failed to find containerd binary %v", err)
+		return -1, fmt.Errorf("failed to find containerd binary %v", err)
 	}
 
 	// Start a new containerd instance.
-	cmd, err := ctrd.newContainerdCmd(containerdPath, debug)
+	cmd, err := newContainerdCmd(homeDir, containerdPath, debug)
+	if err != nil {
+		return -1, err
+	}
+
 	go cmd.Wait()
-
-	ctrd.daemonPid = cmd.Process.Pid
-
-	client, err := containerd.New(ctrd.rpcAddr, containerd.WithDefaultNamespace("default"))
-	if err != nil {
-		syscall.Kill(ctrd.daemonPid, syscall.SIGKILL)
-		return nil, err
-	}
-
-	// create a new lease or reuse the existed.
-	var lease containerd.Lease
-	leases, err := client.ListLeases(context.TODO())
-	if err != nil {
-		syscall.Kill(ctrd.daemonPid, syscall.SIGKILL)
-		return nil, err
-	}
-	if len(leases) != 0 {
-		lease = leases[0]
-	} else {
-		if lease, err = client.CreateLease(context.TODO()); err != nil {
-			return nil, err
-		}
-	}
-
-	ctrd.client = client
-	ctrd.lease = &lease
-
-	return ctrd, nil
+	return cmd.Process.Pid, nil
 }
 
-func (ctrd *Ctrd) newContainerdCmd(containerdPath string, debug bool) (*exec.Cmd, error) {
+func newContainerdCmd(homeDir, containerdPath string, debug bool) (*exec.Cmd, error) {
 	args := []string{
-		"-a", ctrd.rpcAddr,
-		"--root", path.Join(ctrd.homeDir, "containerd/root"),
-		"--state", path.Join(ctrd.homeDir, "containerd/state"),
+		"-a", socketAddr,
+		"--root", path.Join(homeDir, "containerd/root"),
+		"--state", path.Join(homeDir, "containerd/state"),
 		"-l", utils.IfThenElse(debug, "debug", "info").(string),
 	}
 
@@ -122,25 +79,52 @@ func (ctrd *Ctrd) newContainerdCmd(containerdPath string, debug bool) (*exec.Cmd
 }
 
 // Cleanup kill containerd instance process
-func (ctrd *Ctrd) Cleanup() error {
-	if ctrd.daemonPid == -1 {
-		return nil
+func Cleanup(pid int) error {
+	if pid != -1 {
+		// delete containerd process forcely.
+		syscall.Kill(pid, syscall.SIGKILL)
 	}
 
-	// delete containerd process forcely.
-	syscall.Kill(ctrd.daemonPid, syscall.SIGKILL)
-
-	// clear some files.
-	os.Remove(ctrd.rpcAddr)
-
+	os.Remove(socketAddr)
 	return nil
+}
+
+// Client is the wrapper of a containerd client.
+type Client struct {
+	client *containerd.Client
+	lease  *containerd.Lease
+}
+
+// NewCtrdClient create a client of containerd
+func NewCtrdClient() (*Client, error) {
+	client, err := containerd.New(socketAddr, containerd.WithDefaultNamespace("default"))
+	if err != nil {
+		return nil, err
+	}
+
+	// create a new lease or reuse the existed.
+	var lease containerd.Lease
+	leases, err := client.ListLeases(context.TODO())
+	if err != nil {
+		return nil, err
+	}
+	if len(leases) != 0 {
+		lease = leases[0]
+	} else {
+		if lease, err = client.CreateLease(context.TODO()); err != nil {
+			return nil, err
+		}
+	}
+
+	return &Client{
+		client: client,
+		lease:  &lease,
+	}, nil
 }
 
 // PullImage prepares all images using by docker containers,
 // that will be used to create new pouch container.
-func (ctrd *Ctrd) PullImage(ctx context.Context, imageName string) error {
-	ctx = leases.WithLease(ctx, ctrd.lease.ID())
-
+func (cli *Client) PullImage(ctx context.Context, imageName string) error {
 	resolver, err := resolver(&pouchtypes.AuthConfig{})
 	if err != nil {
 		return err
@@ -151,71 +135,26 @@ func (ctrd *Ctrd) PullImage(ctx context.Context, imageName string) error {
 		containerd.WithSchema1Conversion,
 		containerd.WithResolver(resolver),
 	}
-	_, err = ctrd.client.Pull(ctx, imageName, options...)
+	_, err = cli.client.Pull(ctx, imageName, options...)
 	return err
 }
 
-func resolver(authConfig *pouchtypes.AuthConfig) (remotes.Resolver, error) {
-	var (
-		// TODO
-		username  = ""
-		secret    = ""
-		plainHTTP = false
-		refresh   = ""
-		insecure  = false
-	)
-
-	// FIXME
-	_ = refresh
-
-	options := docker.ResolverOptions{
-		PlainHTTP: plainHTTP,
-		Tracker:   docker.NewInMemoryTracker(),
-	}
-	options.Credentials = func(host string) (string, string, error) {
-		// Only one host
-		return username, secret, nil
-	}
-
-	tr := &http.Transport{
-		Proxy: proxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-			DualStack: true,
-		}).DialContext,
-		MaxIdleConns:        10,
-		IdleConnTimeout:     30 * time.Second,
-		TLSHandshakeTimeout: 10 * time.Second,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: insecure,
-		},
-		ExpectContinueTimeout: 5 * time.Second,
-	}
-
-	options.Client = &http.Client{
-		Transport: tr,
-	}
-
-	return docker.NewResolver(options), nil
-}
-
 // CreateSnapshot creates an active snapshot with image's name and id.
-func (ctrd *Ctrd) CreateSnapshot(ctx context.Context, id, ref string) error {
-	ctx = leases.WithLease(ctx, ctrd.lease.ID())
+func (cli *Client) CreateSnapshot(ctx context.Context, id, ref string) error {
+	ctx = leases.WithLease(ctx, cli.lease.ID())
 
-	image, err := ctrd.client.ImageService().Get(ctx, ref)
+	image, err := cli.client.ImageService().Get(ctx, ref)
 	if err != nil {
 		return err
 	}
 
-	diffIDs, err := image.RootFS(ctx, ctrd.client.ContentStore(), platforms.Default())
+	diffIDs, err := image.RootFS(ctx, cli.client.ContentStore(), platforms.Default())
 	if err != nil {
 		return err
 	}
 
 	parent := identity.ChainID(diffIDs).String()
-	if _, err := ctrd.client.SnapshotService(defaultSnapshotterName).Prepare(ctx, id, parent); err != nil {
+	if _, err := cli.client.SnapshotService(defaultSnapshotterName).Prepare(ctx, id, parent); err != nil {
 		return err
 	}
 
@@ -223,24 +162,24 @@ func (ctrd *Ctrd) CreateSnapshot(ctx context.Context, id, ref string) error {
 }
 
 // GetSnapshot returns the snapshot's info by id.
-func (ctrd *Ctrd) GetSnapshot(ctx context.Context, id string) (snapshots.Info, error) {
-	service := ctrd.client.SnapshotService(defaultSnapshotterName)
+func (cli *Client) GetSnapshot(ctx context.Context, id string) (snapshots.Info, error) {
+	service := cli.client.SnapshotService(defaultSnapshotterName)
 	defer service.Close()
 
 	return service.Stat(ctx, id)
 }
 
 // GetMounts returns the mounts for the active snapshot transaction identified by key.
-func (ctrd *Ctrd) GetMounts(ctx context.Context, id string) ([]mount.Mount, error) {
-	service := ctrd.client.SnapshotService(defaultSnapshotterName)
+func (cli *Client) GetMounts(ctx context.Context, id string) ([]mount.Mount, error) {
+	service := cli.client.SnapshotService(defaultSnapshotterName)
 	defer service.Close()
 
 	return service.Mounts(ctx, id)
 }
 
 // RemoveSnapshot remove the snapshot by id.
-func (ctrd *Ctrd) RemoveSnapshot(ctx context.Context, id string) error {
-	service := ctrd.client.SnapshotService(defaultSnapshotterName)
+func (cli *Client) RemoveSnapshot(ctx context.Context, id string) error {
+	service := cli.client.SnapshotService(defaultSnapshotterName)
 	defer service.Close()
 
 	return service.Remove(ctx, id)
@@ -249,7 +188,7 @@ func (ctrd *Ctrd) RemoveSnapshot(ctx context.Context, id string) error {
 
 // NewContainer just create a very simple container for migration
 // just load container id to boltdb
-func (ctrd *Ctrd) NewContainer(ctx context.Context, id string) error {
+func (cli *Client) NewContainer(ctx context.Context, id string) error {
 	ctx = namespaces.WithNamespace(ctx, namespaces.Default)
 
 	spec, err := oci.GenerateSpec(ctx, nil, &containers.Container{ID: id})
@@ -264,7 +203,7 @@ func (ctrd *Ctrd) NewContainer(ctx context.Context, id string) error {
 		}),
 	}
 
-	if _, err := ctrd.client.NewContainer(ctx, id, options...); err != nil {
+	if _, err := cli.client.NewContainer(ctx, id, options...); err != nil {
 		return fmt.Errorf("failed to create new containerd container %s: %v", id, err)
 	}
 
@@ -272,21 +211,21 @@ func (ctrd *Ctrd) NewContainer(ctx context.Context, id string) error {
 }
 
 // GetContainer is to fetch a container info from containerd
-func (ctrd *Ctrd) GetContainer(ctx context.Context, id string) (containers.Container, error) {
+func (cli *Client) GetContainer(ctx context.Context, id string) (containers.Container, error) {
 	ctx = namespaces.WithNamespace(ctx, namespaces.Default)
 
-	return ctrd.client.ContainerService().Get(ctx, id)
+	return cli.client.ContainerService().Get(ctx, id)
 }
 
 // DeleteContainer deletes a containerd container
-func (ctrd *Ctrd) DeleteContainer(ctx context.Context, id string) error {
+func (cli *Client) DeleteContainer(ctx context.Context, id string) error {
 	ctx = namespaces.WithNamespace(ctx, namespaces.Default)
 
-	return ctrd.client.ContainerService().Delete(ctx, id)
+	return cli.client.ContainerService().Delete(ctx, id)
 }
 
 // GetImage inspect a containerd image
-func (ctrd *Ctrd) GetImage(ctx context.Context, imageName string) (containerd.Image, error) {
+func (cli *Client) GetImage(ctx context.Context, imageName string) (containerd.Image, error) {
 	ctx = namespaces.WithNamespace(ctx, namespaces.Default)
-	return ctrd.client.GetImage(ctx, imageName)
+	return cli.client.GetImage(ctx, imageName)
 }

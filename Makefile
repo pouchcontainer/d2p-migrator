@@ -1,6 +1,5 @@
 BINARY := d2p-migrator
 PKGS := $(shell go list ./... | grep -v /vendor)
-GOBUILD := "go build"
 
 # VERSION is used for daemon Release Version in go build.
 VERSION ?= "1.0.0"
@@ -27,7 +26,7 @@ lint:
 .PHONY: linux
 linux:
 	@mkdir -p bin
-	@GOOS=linux $(GOBUILD) -ldflags ${DEFAULT_LDFLAGS} -o bin/$(BINARY)
+	@GOOS=linux go build -ldflags ${DEFAULT_LDFLAGS} -o bin/$(BINARY)
 
 .PHONY: build
 build: linux

@@ -1,9 +1,10 @@
-package pouch
+package convertor
 
 import (
 	"fmt"
 	"strings"
 
+	localtypes "github.com/pouchcontainer/d2p-migrator/pouch/types"
 	"github.com/pouchcontainer/d2p-migrator/utils"
 
 	pouchtypes "github.com/alibaba/pouch/apis/types"
@@ -15,13 +16,13 @@ import (
 )
 
 // ToPouchContainerMeta coverts docker container config to pouch container config.
-func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*PouchContainer, error) {
+func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*localtypes.Container, error) {
 	if meta == nil {
 		return nil, nil
 	}
 
 	// Convert Base Parameters
-	pouchMeta := &PouchContainer{
+	pouchMeta := &localtypes.Container{
 		// SeccompProfile
 		// NoNewPrivileges
 		// TODO: should change ExecIds to ExecIDs
