@@ -340,7 +340,7 @@ func (p *PouchMigrator) prepareCtrdContainers(ctx context.Context, meta *pouch.P
 
 // doPrepare prepares image and snapshot by using old container info.
 func (p *PouchMigrator) doPrepare(ctx context.Context, meta *pouch.PouchContainer, takeOverContainer bool) error {
-	// check image existance
+	// check image existence
 	img := meta.Config.Image
 	_, imageExist := p.images[img]
 	if !imageExist {
@@ -716,7 +716,7 @@ func (p *PouchMigrator) PrepareImages(ctx context.Context) error {
 			continue
 		}
 
-		// check image existance
+		// check image existence
 		_, err = p.containerd.GetImage(ctx, imageName)
 		if err == nil {
 			logrus.Infof("image %s has been downloaded, skip pull image", imageName)
