@@ -73,5 +73,4 @@ func (d *Dockerd) ContainerStart(containerID string) error {
 	opts := types.ContainerStartOptions{}
 
 	return d.client.ContainerStart(context.Background(), containerID, opts)
-
 }

@@ -75,7 +75,7 @@ func NewColdMigrator(cfg Config) (Migrator, error) {
 // * create snapshot for container
 // * set snapshot upperDir, workDir diskquota
 // * convert docker container metaJSON to pouch container metaJSON
-func (cm *coldMigrator) PreMigrate(ctx context.Context, dockerCli *docker.Dockerd) error {
+func (cm *coldMigrator) PreMigrate(ctx context.Context, dockerCli *docker.Dockerd, ctrdCli *ctrd.Client) error {
 	// Get all docker containers on host.
 	containers, err := dockerCli.ContainerList()
 	if err != nil {
@@ -104,12 +104,6 @@ func (cm *coldMigrator) PreMigrate(ctx context.Context, dockerCli *docker.Docker
 		pouchHomeDir  = getPouchHomeDir(cm.dockerHomeDir)
 		containersDir = path.Join(pouchHomeDir, "containers")
 	)
-
-	// get container client
-	ctrdCli, err := ctrd.NewCtrdClient()
-	if err != nil {
-		return fmt.Errorf("failed to get containerd client: %v", err)
-	}
 
 	for _, c := range containers {
 		cm.allContainers[c.ID] = false
@@ -220,7 +214,7 @@ func (cm *coldMigrator) doPrepare(ctx context.Context, ctrdCli *ctrd.Client, met
 		logrus.Infof("image %s has been downloaded, skip pull image", img)
 	} else {
 		logrus.Infof("Start pull image: %s", img)
-		if err := ctrdCli.PullImage(ctx, img); err != nil {
+		if err := ctrdCli.PullImage(ctx, img, true); err != nil {
 			logrus.Errorf("failed to pull image %s: %v\n", img, err)
 			return err
 		}
@@ -270,7 +264,7 @@ func (cm *coldMigrator) doPrepare(ctx context.Context, ctrdCli *ctrd.Client, met
 // Migrate migrates docker containers to pouch containers:
 // * stop all docker containers
 // * mv oldUpperDir/* newUpperDir/
-func (cm *coldMigrator) Migrate(ctx context.Context, dockerCli *docker.Dockerd) error {
+func (cm *coldMigrator) Migrate(ctx context.Context, dockerCli *docker.Dockerd, ctrdCli *ctrd.Client) error {
 	pouchHomeDir := getPouchHomeDir(cm.dockerHomeDir)
 	if err := migrateNetworkFile(cm.dockerHomeDir, pouchHomeDir); err != nil {
 		return err
@@ -304,7 +298,7 @@ func (cm *coldMigrator) Migrate(ctx context.Context, dockerCli *docker.Dockerd) 
 }
 
 // PostMigrate does something after migration.
-func (cm *coldMigrator) PostMigrate(ctx context.Context, dockerCli *docker.Dockerd, dockerRpmName, pouchRpmPath string) error {
+func (cm *coldMigrator) PostMigrate(ctx context.Context, dockerCli *docker.Dockerd, ctrdCli *ctrd.Client, dockerRpmName, pouchRpmPath string) error {
 	// Get all docker containers on host again,
 	// In case, there will have containers be deleted
 	// Notes: we will lock host first, so there will have no
@@ -379,7 +373,7 @@ func (cm *coldMigrator) PostMigrate(ctx context.Context, dockerCli *docker.Docke
 }
 
 // RevertMigration reverts migration.
-func (cm *coldMigrator) RevertMigration(ctx context.Context, dockerCli *docker.Dockerd) error {
+func (cm *coldMigrator) RevertMigration(ctx context.Context, dockerCli *docker.Dockerd, ctrdCli *ctrd.Client) error {
 	// Then, move all upperDir back
 	for _, dirMapping := range cm.upperDirMappingList {
 		if err := utils.MoveDir(dirMapping.dstDir, dirMapping.srcDir); err != nil {

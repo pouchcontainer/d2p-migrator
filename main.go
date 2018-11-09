@@ -29,6 +29,7 @@ type Config struct {
 var (
 	printVersion bool
 	cfg          = &Config{}
+	rePullImages []string
 )
 
 func main() {
@@ -74,9 +75,10 @@ func setupFlags(cmd *cobra.Command) {
 	flagSet.StringVar(&cfg.DockerRpmName, "docker-pkg", "docker", "Specify docker package name")
 	flagSet.StringVar(&cfg.PouchRpmPath, "pouch-pkg-path", "pouch", "Specify pouch package file path")
 	flagSet.BoolVar(&cfg.MigrateAll, "migrate-all", false, "If true, do all migration things, otherwise, just prepare data for migration")
-	flagSet.BoolVar(&cfg.LiveMigrate, "live-migrate", false, "auto takeover the docker running containers when migration, which will not affect the whole containers at all")
+	flagSet.BoolVar(&cfg.LiveMigrate, "live-migrate", false, "Auto takeover the docker running containers when migration, which will not affect the whole containers at all")
 	flagSet.StringVar(&cfg.ImageProxy, "image-proxy", "", "Http proxy to pull image")
-	flagSet.BoolVar(&cfg.PrepareImage, "pull-images", false, "if this flag set, we will just pull container images")
+	flagSet.BoolVar(&cfg.PrepareImage, "pull-images", false, "If this flag set, we will just pull container images")
+	flagSet.StringSliceVar(&rePullImages, "repull-images", []string{}, "Images d2p-migrator will actually pull")
 	flagSet.BoolVarP(&printVersion, "version", "v", false, "Print d2p-migrator version")
 }
 
@@ -104,12 +106,19 @@ func runCmd() error {
 		ctrd.SetImageProxy(cfg.ImageProxy)
 	}
 
+	rePullImageSet := make(map[string]struct{})
+	for _, image := range rePullImages {
+		rePullImageSet[image] = struct{}{}
+	}
+
 	ctx := context.Background()
 	migratorCfg := migrator.Config{
-		Type:          "cold-migrate",
-		DockerRpmName: cfg.DockerRpmName,
-		PouchRpmPath:  cfg.PouchRpmPath,
+		Type:           "cold-migrate",
+		DockerRpmName:  cfg.DockerRpmName,
+		PouchRpmPath:   cfg.PouchRpmPath,
+		RePullImageSet: rePullImageSet,
 	}
+
 	if cfg.LiveMigrate {
 		migratorCfg.Type = "live-migrate"
 	}

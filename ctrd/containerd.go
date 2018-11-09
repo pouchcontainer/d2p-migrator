@@ -10,9 +10,11 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/pouchcontainer/d2p-migrator/ctrd/image"
 	"github.com/pouchcontainer/d2p-migrator/utils"
 
 	pouchtypes "github.com/alibaba/pouch/apis/types"
+	"github.com/alibaba/pouch/pkg/reference"
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/leases"
@@ -28,6 +30,8 @@ import (
 const (
 	defaultSnapshotterName = "overlayfs"
 	socketAddr             = "/tmp/containerd-migrator.sock"
+	defaultRegistry        = "registry.hub.docker.com"
+	defaultNamespace       = "library"
 )
 
 // StartContainerd create a new containerd instance.
@@ -37,7 +41,7 @@ func StartContainerd(homeDir string, debug bool) (int, error) {
 		os.RemoveAll(socketAddr)
 	}
 
-	containerdPath, err := exec.LookPath("/usr/local/bin/containerd")
+	containerdPath, err := exec.LookPath("containerd")
 	if err != nil {
 		return -1, fmt.Errorf("failed to find containerd binary %v", err)
 	}
@@ -91,12 +95,13 @@ func Cleanup(pid int) error {
 
 // Client is the wrapper of a containerd client.
 type Client struct {
-	client *containerd.Client
-	lease  *containerd.Lease
+	client         *containerd.Client
+	lease          *containerd.Lease
+	RePullImageSet map[string]struct{}
 }
 
 // NewCtrdClient create a client of containerd
-func NewCtrdClient() (*Client, error) {
+func NewCtrdClient(imageSet map[string]struct{}) (*Client, error) {
 	client, err := containerd.New(socketAddr, containerd.WithDefaultNamespace("default"))
 	if err != nil {
 		return nil, err
@@ -117,26 +122,10 @@ func NewCtrdClient() (*Client, error) {
 	}
 
 	return &Client{
-		client: client,
-		lease:  &lease,
+		client:         client,
+		lease:          &lease,
+		RePullImageSet: imageSet,
 	}, nil
-}
-
-// PullImage prepares all images using by docker containers,
-// that will be used to create new pouch container.
-func (cli *Client) PullImage(ctx context.Context, imageName string) error {
-	resolver, err := resolver(&pouchtypes.AuthConfig{})
-	if err != nil {
-		return err
-	}
-
-	options := []containerd.RemoteOpt{
-		containerd.WithPullUnpack,
-		containerd.WithSchema1Conversion,
-		containerd.WithResolver(resolver),
-	}
-	_, err = cli.client.Pull(ctx, imageName, options...)
-	return err
 }
 
 // CreateSnapshot creates an active snapshot with image's name and id.
@@ -228,4 +217,43 @@ func (cli *Client) DeleteContainer(ctx context.Context, id string) error {
 func (cli *Client) GetImage(ctx context.Context, imageName string) (containerd.Image, error) {
 	ctx = namespaces.WithNamespace(ctx, namespaces.Default)
 	return cli.client.GetImage(ctx, imageName)
+}
+
+// PullImage prepares all images using by docker containers,
+// that will be used to create new pouch container.
+func (cli *Client) PullImage(ctx context.Context, ref string, rePullAll bool) error {
+	var err error
+	newRef := image.AddDefaultRegistryIfMissing(ref, defaultRegistry, defaultNamespace)
+	namedRef, err := reference.Parse(newRef)
+	if err != nil {
+		return err
+	}
+
+	namedRef = reference.TrimTagForDigest(reference.WithDefaultTagIfMissing(namedRef))
+	resolver, err := resolver(&pouchtypes.AuthConfig{})
+	if err != nil {
+		return err
+	}
+
+	options := []containerd.RemoteOpt{
+		containerd.WithSchema1Conversion,
+		containerd.WithResolver(resolver),
+	}
+
+	// d2p-migrator will actually download the layer data if includeLayer is true
+	includeLayer := false
+	if rePullAll {
+		includeLayer = true
+	} else if _, ok := cli.RePullImageSet[ref]; ok {
+		includeLayer = true
+	}
+
+	if includeLayer {
+		options = append(options, containerd.WithPullUnpack)
+		_, err = cli.client.Pull(ctx, namedRef.String(), options...)
+	} else {
+		err = image.PullManifest(ctx, cli.client, namedRef.String(), options...)
+	}
+
+	return err
 }

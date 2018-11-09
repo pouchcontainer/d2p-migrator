@@ -3,6 +3,7 @@ package migrator
 import (
 	"context"
 
+	"github.com/pouchcontainer/d2p-migrator/ctrd"
 	"github.com/pouchcontainer/d2p-migrator/docker"
 )
 
@@ -11,16 +12,16 @@ var migratorFactory map[string]func(Config) (Migrator, error)
 // Migrator is an interface to migrate docker containers to other containers
 type Migrator interface {
 	// PreMigrate do something before migration
-	PreMigrate(ctx context.Context, cli *docker.Dockerd) error
+	PreMigrate(ctx context.Context, cli *docker.Dockerd, ctrdCli *ctrd.Client) error
 
 	// Migrate does migrate action
-	Migrate(ctx context.Context, cli *docker.Dockerd) error
+	Migrate(ctx context.Context, cli *docker.Dockerd, ctrdCli *ctrd.Client) error
 
 	// PostMigrate do something after migration
-	PostMigrate(ctx context.Context, cli *docker.Dockerd, dockerRpmName, pouchRpmPath string) error
+	PostMigrate(ctx context.Context, cli *docker.Dockerd, ctrdCli *ctrd.Client, dockerRpmName, pouchRpmPath string) error
 
 	// RevertMigration reverts migration
-	RevertMigration(ctx context.Context, cli *docker.Dockerd) error
+	RevertMigration(ctx context.Context, cli *docker.Dockerd, ctrdCli *ctrd.Client) error
 
 	// Cleanup does some clean works when migrator exited
 	Cleanup() error

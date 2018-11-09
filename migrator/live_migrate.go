@@ -42,7 +42,7 @@ func NewLiveMigrator(cfg Config) (Migrator, error) {
 
 // PreMigrate prepares things for migration
 // TODO: need to add more details
-func (lm *liveMigrator) PreMigrate(ctx context.Context, dockerCli *docker.Dockerd) error {
+func (lm *liveMigrator) PreMigrate(ctx context.Context, dockerCli *docker.Dockerd, ctrdCli *ctrd.Client) error {
 	// Get all docker containers on host.
 	containers, err := dockerCli.ContainerList()
 	if err != nil {
@@ -70,12 +70,6 @@ func (lm *liveMigrator) PreMigrate(ctx context.Context, dockerCli *docker.Docker
 		pouchHomeDir  = getPouchHomeDir(lm.dockerHomeDir)
 		containersDir = path.Join(pouchHomeDir, "containers")
 	)
-
-	// get container client
-	ctrdCli, err := ctrd.NewCtrdClient()
-	if err != nil {
-		return fmt.Errorf("failed to get containerd client: %v", err)
-	}
 
 	for _, c := range containers {
 		lm.allContainers[c.ID] = false
@@ -139,13 +133,13 @@ func (lm *liveMigrator) doPrepare(ctx context.Context, ctrdCli *ctrd.Client, met
 }
 
 // Migrate just migrates network files here when living migration.
-func (lm *liveMigrator) Migrate(ctx context.Context, dockerCli *docker.Dockerd) error {
+func (lm *liveMigrator) Migrate(ctx context.Context, dockerCli *docker.Dockerd, ctrdCli *ctrd.Client) error {
 	pouchHomeDir := getPouchHomeDir(lm.dockerHomeDir)
 	return migrateNetworkFile(lm.dockerHomeDir, pouchHomeDir)
 }
 
 // PostMigrate does something after migration.
-func (lm *liveMigrator) PostMigrate(ctx context.Context, dockerCli *docker.Dockerd, dockerRpmName, pouchRpmPath string) error {
+func (lm *liveMigrator) PostMigrate(ctx context.Context, dockerCli *docker.Dockerd, ctrdCli *ctrd.Client, dockerRpmName, pouchRpmPath string) error {
 	// Get all docker containers on host again,
 	// In case, it may have containers being deleted
 	// Notes: we will lock host first, so there will have no
@@ -201,7 +195,7 @@ func (lm *liveMigrator) PostMigrate(ctx context.Context, dockerCli *docker.Docke
 }
 
 // RevertMigration reverts migration.
-func (lm *liveMigrator) RevertMigration(ctx context.Context, dockerCli *docker.Dockerd) error {
+func (lm *liveMigrator) RevertMigration(ctx context.Context, dockerCli *docker.Dockerd, ctrdCli *ctrd.Client) error {
 	return nil
 }
 
