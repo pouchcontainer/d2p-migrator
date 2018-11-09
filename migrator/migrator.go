@@ -27,6 +27,10 @@ type Config struct {
 	// DockerHomeDir represents the docker service home dir, we also can
 	// get pouch service home dir by the DockerHomeDir
 	DockerHomeDir string
+	// RePullImages is a collection of imageRef which d2p-migrator
+	// will actually re-pull using pouchd. Otherwise, d2p-migrator
+	// just download the manifest file.
+	RePullImageSet map[string]struct{}
 }
 
 // D2pMigrator is the core component to do migrate.
@@ -34,6 +38,7 @@ type D2pMigrator struct {
 	config    Config
 	migrator  Migrator
 	dockerCli *docker.Dockerd
+	ctrdCli   *ctrd.Client
 	ctrdPid   int
 }
 
@@ -96,12 +101,12 @@ func NewD2pMigrator(cfg Config) (*D2pMigrator, error) {
 
 // PreMigrate prepares things for the migration
 func (d *D2pMigrator) PreMigrate(ctx context.Context) error {
-	return d.migrator.PreMigrate(ctx, d.dockerCli)
+	return d.migrator.PreMigrate(ctx, d.dockerCli, d.ctrdCli)
 }
 
 // Migrate  does migrate procedures
 func (d *D2pMigrator) Migrate(ctx context.Context) error {
-	if err := d.migrator.Migrate(ctx, d.dockerCli); err != nil {
+	if err := d.migrator.Migrate(ctx, d.dockerCli, d.ctrdCli); err != nil {
 		return err
 	}
 
@@ -115,12 +120,12 @@ func (d *D2pMigrator) Migrate(ctx context.Context) error {
 
 // PostMigrate do something after migration
 func (d *D2pMigrator) PostMigrate(ctx context.Context) error {
-	return d.migrator.PostMigrate(ctx, d.dockerCli, d.config.DockerRpmName, d.config.PouchRpmPath)
+	return d.migrator.PostMigrate(ctx, d.dockerCli, d.ctrdCli, d.config.DockerRpmName, d.config.PouchRpmPath)
 }
 
 // RevertMigration reverts the migration
 func (d *D2pMigrator) RevertMigration(ctx context.Context) error {
-	return d.migrator.RevertMigration(ctx, d.dockerCli)
+	return d.migrator.RevertMigration(ctx, d.dockerCli, d.ctrdCli)
 }
 
 // Cleanup does some clean works when migrator exited
@@ -130,11 +135,6 @@ func (d *D2pMigrator) Cleanup() error {
 
 // PrepareImages just pull images for containers
 func (d *D2pMigrator) PrepareImages(ctx context.Context) error {
-	ctrdCli, err := ctrd.NewCtrdClient()
-	if err != nil {
-		return fmt.Errorf("failed to get containerd client: %v", err)
-	}
-
 	// Get all docker containers on host.
 	containers, err := d.dockerCli.ContainerList()
 	if err != nil {
@@ -166,17 +166,18 @@ func (d *D2pMigrator) PrepareImages(ctx context.Context) error {
 		}
 
 		// check image existence
-		_, err = ctrdCli.GetImage(ctx, imageName)
+		_, err = d.ctrdCli.GetImage(ctx, imageName)
 		if err == nil {
 			logrus.Infof("image %s has been downloaded, skip pull image", imageName)
-		} else {
-			logrus.Infof("Start pull image: %s", imageName)
-			if err := ctrdCli.PullImage(ctx, imageName); err != nil {
-				logrus.Errorf("failed to pull image %s: %v", imageName, err)
-				continue
-			}
-			logrus.Infof("End pull image: %s", imageName)
+			continue
 		}
+
+		logrus.Infof("Start pull image: %s", imageName)
+		if err := d.ctrdCli.PullImage(ctx, imageName, false); err != nil {
+			logrus.Errorf("failed to pull image %s: %v", imageName, err)
+			continue
+		}
+		logrus.Infof("End pull image: %s", imageName)
 	}
 
 	return nil
