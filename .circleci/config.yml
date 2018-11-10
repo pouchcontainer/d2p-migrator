@@ -22,7 +22,7 @@ jobs:
       - run:
           name: use ShellCheck (https://github.com/koalaman/shellcheck) to check the validateness of shell scripts in pouch repo
           command: |
-            find ./ -name "*.sh" | grep -v vendor | xargs shellcheck
+            find ./ -name "*.sh" -not -path './vendor/*' -exec shellcheck {} \;
   code-check:
     docker: 
       - image: pouchcontainer/pouchlinter:v0.1
