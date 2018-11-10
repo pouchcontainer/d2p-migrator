@@ -34,6 +34,18 @@ jobs:
           name: validate go code with gometalinter
           command: |
             gometalinter --disable-all --skip vendor -E gofmt -E goimports -E golint -E ineffassign -E misspell -E vet -E megacheck ./...
+  build-check:
+    docker:
+    - image: golang:1.10.4
+    working_directory: /go/src/github.com/pouchcontainer/d2p-migrator
+    steps:
+    - checkout
+
+    - run:
+        name: build
+        command: |
+          make build
+
 notify:
   webhooks:
     - url: http://47.96.190.121:6788/circleci_notifications
@@ -44,3 +56,4 @@ workflows:
     jobs:
       - markdownlint-misspell-shellcheck
       - code-check
+      - build-check

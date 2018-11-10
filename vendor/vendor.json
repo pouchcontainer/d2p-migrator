@@ -69,10 +69,10 @@
 			"versionExact": "1.0.0.rc1"
 		},
 		{
-			"checksumSHA1": "aEHf6+M3B0cWMuQ204NC1FiW8LM=",
+			"checksumSHA1": "5Isbe7SiCuzI1iDGma1NlKeipYA=",
 			"path": "github.com/alibaba/pouch/pkg/meta",
-			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
-			"revisionTime": "2018-07-13T02:48:42Z"
+			"revision": "e7e89c859ebd844296bf9e69f6ebb1cf073c7a7d",
+			"revisionTime": "2018-11-10T01:24:26Z"
 		},
 		{
 			"checksumSHA1": "81Yi9qaX+pSZqr0NoF1XXnplG4k=",
