@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -65,17 +68,25 @@ func (s *localStore) Put(fileName, key string, value []byte) error {
 		return err
 	}
 
+	// write new content write into a new target file, rename it to meta.json
+	// after sueecssful, avoid origin data file broken in case of some problem.
 	name := filepath.Join(dir, fileName)
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_SYNC, 0644)
+	target := fmt.Sprintf("%s.%d", name, time.Now().Unix())
+
+	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_SYNC, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %s, %v", name, err)
+		return fmt.Errorf("failed to open file: %s, %v", target, err)
 	}
 	defer f.Close()
 
 	if _, err := f.Write(value); err != nil {
-		return fmt.Errorf("failed to write file: %s, %v", name, err)
+		return fmt.Errorf("failed to write file: %s, %v", target, err)
 	}
 	f.Sync()
+
+	if err := os.Rename(target, name); err != nil {
+		return fmt.Errorf("failed to rename file %s to %s: %s", target, name, err)
+	}
 
 	// NOTICE: cache the key-value.
 	s.cache[key+"/"+fileName] = value
@@ -98,6 +109,7 @@ func (s *localStore) Get(fileName, key string) ([]byte, error) {
 
 	if _, err := os.Stat(name); err != nil {
 		if os.IsNotExist(err) {
+			logrus.Warnf("container %s meta.json file not exist", key)
 			return nil, ErrObjectNotFound
 		}
 	}
@@ -165,6 +177,11 @@ func (s *localStore) Keys(fileName string) ([]string, error) {
 	return keys, nil
 }
 
+// Close do nothing in local store
+func (s *localStore) Close() error {
+	return nil
+}
+
 func mkdirIfNotExist(dir string) error {
 	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
@@ -186,7 +203,10 @@ func walkDir(dir string, handle func(os.FileInfo) error) error {
 		if !f.IsDir() {
 			continue
 		}
-		if err := handle(f); err != nil {
+
+		err := handle(f)
+		// Skip empty container dirs
+		if err != nil && err != ErrObjectNotFound {
 			return fmt.Errorf("failed to handle file %s: %v", f.Name(), err)
 		}
 	}

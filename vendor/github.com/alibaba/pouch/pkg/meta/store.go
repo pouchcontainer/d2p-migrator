@@ -248,6 +248,10 @@ func (s *Store) GetWithPrefix(prefix string) ([]Object, error) {
 func (s *Store) KeysWithPrefix(prefix string) ([]string, error) {
 	var keys []string
 
+	if len(prefix) == 0 {
+		return keys, nil
+	}
+
 	fn := func(prefix patricia.Prefix, item patricia.Item) error {
 		keys = append(keys, string(prefix))
 		return nil
@@ -265,4 +269,9 @@ func (s *Store) KeysWithPrefix(prefix string) ([]string, error) {
 // Path returns the path with specified key.
 func (s *Store) Path(key string) string {
 	return s.backend.Path(key)
+}
+
+// Shutdown releases all resources used by the backend
+func (s *Store) Shutdown() error {
+	return s.backend.Close()
 }
