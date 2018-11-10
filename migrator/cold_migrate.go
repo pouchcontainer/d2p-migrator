@@ -208,7 +208,7 @@ func (cm *coldMigrator) prepareCtrdContainers(ctx context.Context, ctrdCli *ctrd
 
 // doPrepare prepares image and snapshot by using old container info.
 func (cm *coldMigrator) doPrepare(ctx context.Context, ctrdCli *ctrd.Client, meta *localtypes.Container) error {
-	// check image existance
+	// check image existence
 	img := meta.Config.Image
 	_, imageExist := cm.images[img]
 	if !imageExist {

@@ -29,7 +29,7 @@ type Config struct {
 	DockerHomeDir string
 }
 
-// D2pMigrator is the core componant to do migrate.
+// D2pMigrator is the core component to do migrate.
 type D2pMigrator struct {
 	config    Config
 	migrator  Migrator
@@ -165,7 +165,7 @@ func (d *D2pMigrator) PrepareImages(ctx context.Context) error {
 			continue
 		}
 
-		// check image existance
+		// check image existence
 		_, err = ctrdCli.GetImage(ctx, imageName)
 		if err == nil {
 			logrus.Infof("image %s has been downloaded, skip pull image", imageName)

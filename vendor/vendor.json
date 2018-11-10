@@ -69,6 +69,12 @@
 			"versionExact": "1.0.0.rc1"
 		},
 		{
+			"checksumSHA1": "aEHf6+M3B0cWMuQ204NC1FiW8LM=",
+			"path": "github.com/alibaba/pouch/pkg/meta",
+			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
+			"revisionTime": "2018-07-13T02:48:42Z"
+		},
+		{
 			"checksumSHA1": "81Yi9qaX+pSZqr0NoF1XXnplG4k=",
 			"path": "github.com/alibaba/pouch/pkg/reference",
 			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
@@ -131,6 +137,12 @@
 			"revisionTime": "2018-03-19T08:16:51Z"
 		},
 		{
+			"checksumSHA1": "20Pind5XCrfZL/F0oibWfd9gotA=",
+			"path": "github.com/boltdb/bolt",
+			"revision": "fd01fc79c553a8e99d512a07e8e0c63d4a3ccfc5",
+			"revisionTime": "2018-03-02T18:00:52Z"
+		},
+		{
 			"checksumSHA1": "1ny6UV3Oq4kaqpQtM8bs9W9e3vw=",
 			"path": "github.com/containerd/containerd",
 			"revision": "773c489c9c1b21a6d78b5c538cd395416ec50f88",
@@ -142,9 +154,7 @@
 			"checksumSHA1": "V/ZFMKUvTntwELx2zTjn/9IFUqw=",
 			"path": "github.com/containerd/containerd/api/services/containers/v1",
 			"revision": "773c489c9c1b21a6d78b5c538cd395416ec50f88",
-			"revisionTime": "2018-04-02T20:34:37Z",
-			"version": "v1.0.3",
-			"versionExact": "v1.0.3"
+			"revisionTime": "2018-04-02T20:34:37Z"
 		},
 		{
 			"checksumSHA1": "ytKOuPbkTKeohUCQic4Lj84Ziok=",
@@ -695,16 +705,22 @@
 			"revisionTime": "2018-05-02T21:31:33Z"
 		},
 		{
+			"checksumSHA1": "D801O79vbqb3Oj8ffY4xOnSg814=",
 			"path": "github.com/gogo/protobuf/proto",
-			"revision": ""
+			"revision": "211a54c57504366b3bf4b490fb3c0a5f5b8d290b",
+			"revisionTime": "2018-11-04T16:40:17Z"
 		},
 		{
+			"checksumSHA1": "HPVQZu059/Rfw2bAWM538bVTcUc=",
 			"path": "github.com/gogo/protobuf/sortkeys",
-			"revision": ""
+			"revision": "211a54c57504366b3bf4b490fb3c0a5f5b8d290b",
+			"revisionTime": "2018-11-04T16:40:17Z"
 		},
 		{
+			"checksumSHA1": "Mpj9F9dSE1MUKs2+XRn048MDUj8=",
 			"path": "github.com/gogo/protobuf/types",
-			"revision": ""
+			"revision": "211a54c57504366b3bf4b490fb3c0a5f5b8d290b",
+			"revisionTime": "2018-11-04T16:40:17Z"
 		},
 		{
 			"checksumSHA1": "HmbftipkadrLlCfzzVQ+iFHbl6g=",

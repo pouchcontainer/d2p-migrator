@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/pouchcontainer/d2p-migrator/utils"
+	"github.com/sirupsen/logrus"
 )
 
 var (
