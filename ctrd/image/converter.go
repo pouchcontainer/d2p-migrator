@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/ioutil"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/containerd/containerd/content"
@@ -36,10 +35,7 @@ type Converter struct {
 
 	pulledManifest *manifest
 
-	mu      sync.Mutex
 	blobMap map[digest.Digest]blobState
-
-	includeLayer bool
 }
 
 // NewConverter returns a new converter

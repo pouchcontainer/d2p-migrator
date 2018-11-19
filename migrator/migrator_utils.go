@@ -94,11 +94,7 @@ func SetDirDiskQuota(defaultQuota, quotaID, dir string) error {
 		return nil
 	}
 
-	if err := filepath.Walk(dir, qotaSetFunc); err != nil {
-		return err
-	}
-
-	return nil
+	return filepath.Walk(dir, qotaSetFunc)
 }
 
 func migrateNetworkFile(dockerHomeDir, pouchHomeDir string) error {

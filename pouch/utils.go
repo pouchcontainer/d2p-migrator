@@ -70,9 +70,5 @@ func ChangeHomeDir(homeDir string) error {
 	}
 
 	replaceReg := fmt.Sprintf(`s|\("home-dir": "\).*|\1%s",|`, homeDir)
-	if err := utils.ExecCommand("sed", "-i", replaceReg, ConfigFile); err != nil {
-		return err
-	}
-
-	return nil
+	return utils.ExecCommand("sed", "-i", replaceReg, ConfigFile)
 }

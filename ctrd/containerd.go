@@ -143,11 +143,8 @@ func (cli *Client) CreateSnapshot(ctx context.Context, id, ref string) error {
 	}
 
 	parent := identity.ChainID(diffIDs).String()
-	if _, err := cli.client.SnapshotService(defaultSnapshotterName).Prepare(ctx, id, parent); err != nil {
-		return err
-	}
-
-	return nil
+	_, err = cli.client.SnapshotService(defaultSnapshotterName).Prepare(ctx, id, parent)
+	return err
 }
 
 // GetSnapshot returns the snapshot's info by id.

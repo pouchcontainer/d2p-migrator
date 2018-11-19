@@ -15,7 +15,6 @@ import (
 	"github.com/pouchcontainer/d2p-migrator/utils"
 
 	pouchtypes "github.com/alibaba/pouch/apis/types"
-	"github.com/containerd/containerd/errdefs"
 	dockerclient "github.com/docker/engine-api/client"
 	"github.com/sirupsen/logrus"
 )
@@ -179,25 +178,6 @@ func (cm *coldMigrator) getOverlayFsDir(ctx context.Context, ctrdCli *ctrd.Clien
 	}
 
 	return upperDir, workDir, nil
-}
-
-func (cm *coldMigrator) prepareCtrdContainers(ctx context.Context, ctrdCli *ctrd.Client, meta *localtypes.Container) error {
-	// only prepare containerd container for running docker containers
-	if meta.State.Status != pouchtypes.StatusRunning {
-		return nil
-	}
-
-	logrus.Infof("auto take over running container %s, no need convert process", meta.ID)
-	_, err := ctrdCli.GetContainer(ctx, meta.ID)
-	if err == nil { // container already exist
-		if err := ctrdCli.DeleteContainer(ctx, meta.ID); err != nil {
-			return fmt.Errorf("failed to delete already existed containerd container %s: %v", meta.ID, err)
-		}
-	} else if !errdefs.IsNotFound(err) {
-		return fmt.Errorf("failed to get containerd container: %v", err)
-	}
-
-	return ctrdCli.NewContainer(ctx, meta.ID)
 }
 
 // doPrepare prepares image and snapshot by using old container info.
