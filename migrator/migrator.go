@@ -89,11 +89,18 @@ func NewD2pMigrator(cfg Config) (*D2pMigrator, error) {
 		return nil, fmt.Errorf("failed to start containerd instance: %v", err)
 	}
 
+	// create containerd client
+	ctrdCli, err := ctrd.NewCtrdClient(cfg.RePullImageSet)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get containerd client: %v", err)
+	}
+
 	d2pMigrator := &D2pMigrator{
 		config:    cfg,
 		migrator:  migrator,
 		dockerCli: dockerCli,
 		ctrdPid:   ctrdPid,
+		ctrdCli:   ctrdCli,
 	}
 
 	return d2pMigrator, nil
