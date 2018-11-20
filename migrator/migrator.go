@@ -77,14 +77,8 @@ func NewD2pMigrator(cfg Config) (*D2pMigrator, error) {
 		return nil, fmt.Errorf("failed to create migrator: %v", err)
 	}
 
-	// prepare environment for pouch
-	pouchHomeDir := getPouchHomeDir(cfg.DockerHomeDir)
-	if err := prepareConfigForPouch(pouchHomeDir); err != nil {
-		return nil, fmt.Errorf("failed to prepare config for pouch: %v", err)
-	}
-
 	// start containerd for migrate
-	ctrdPid, err := ctrd.StartContainerd(pouchHomeDir, true)
+	ctrdPid, err := ctrd.StartContainerd(getPouchHomeDir(cfg.DockerHomeDir), true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start containerd instance: %v", err)
 	}
@@ -106,8 +100,24 @@ func NewD2pMigrator(cfg Config) (*D2pMigrator, error) {
 	return d2pMigrator, nil
 }
 
+// initPouchEnv initialize environment for pouch,
+// it will be called in PreMigrate.
+func (d *D2pMigrator) initPouchEnv() error {
+	// prepare environment for pouch
+	pouchHomeDir := getPouchHomeDir(d.config.DockerHomeDir)
+	if err := prepareConfigForPouch(pouchHomeDir); err != nil {
+		return fmt.Errorf("failed to prepare config for pouch: %v", err)
+	}
+
+	return nil
+}
+
 // PreMigrate prepares things for the migration
 func (d *D2pMigrator) PreMigrate(ctx context.Context) error {
+	if err := d.initPouchEnv(); err != nil {
+		return err
+	}
+
 	return d.migrator.PreMigrate(ctx, d.dockerCli, d.ctrdCli)
 }
 
