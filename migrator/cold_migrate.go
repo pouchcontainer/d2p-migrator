@@ -63,7 +63,8 @@ type upperDirMapping struct {
 func NewColdMigrator(cfg Config) (Migrator, error) {
 	migrator := &coldMigrator{
 		dockerHomeDir: cfg.DockerHomeDir,
-		allContainers: map[string]bool{},
+		allContainers: make(map[string]bool),
+		images:        make(map[string]struct{}),
 	}
 
 	return migrator, nil
