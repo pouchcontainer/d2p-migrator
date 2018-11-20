@@ -18,28 +18,29 @@ import (
 	"github.com/containerd/containerd/remotes/docker"
 )
 
-var proxy string
+var (
+	proxy    string
+	username string
+	secret   string
+)
 
 // SetImageProxy sets value of image http proxy
 func SetImageProxy(p string) {
 	proxy = p
 }
 
+// SetCredential sets user and secret for image registry
+func SetCredential(user string) {
+	username = user
+	if i := strings.IndexByte(user, ':'); i > 0 {
+		secret = user[i+1:]
+		username = user[0:i]
+	}
+}
+
 func resolver(authConfig *pouchtypes.AuthConfig) (remotes.Resolver, error) {
-	var (
-		// TODO
-		username  = ""
-		secret    = ""
-		plainHTTP = false
-		refresh   = ""
-		insecure  = false
-	)
-
-	// FIXME
-	_ = refresh
-
 	options := docker.ResolverOptions{
-		PlainHTTP: plainHTTP,
+		PlainHTTP: false,
 		Tracker:   docker.NewInMemoryTracker(),
 	}
 	options.Credentials = func(host string) (string, string, error) {
@@ -58,7 +59,7 @@ func resolver(authConfig *pouchtypes.AuthConfig) (remotes.Resolver, error) {
 		IdleConnTimeout:     30 * time.Second,
 		TLSHandshakeTimeout: 10 * time.Second,
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: insecure,
+			InsecureSkipVerify: false,
 		},
 		ExpectContinueTimeout: 5 * time.Second,
 	}

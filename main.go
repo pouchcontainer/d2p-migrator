@@ -24,6 +24,7 @@ type Config struct {
 	ImageProxy    string
 	LiveMigrate   bool
 	PrepareImage  bool
+	User          string
 }
 
 var (
@@ -77,6 +78,7 @@ func setupFlags(cmd *cobra.Command) {
 	flagSet.BoolVar(&cfg.MigrateAll, "migrate-all", false, "If true, do all migration things, otherwise, just prepare data for migration")
 	flagSet.BoolVar(&cfg.LiveMigrate, "live-migrate", false, "Auto takeover the docker running containers when migration, which will not affect the whole containers at all")
 	flagSet.StringVar(&cfg.ImageProxy, "image-proxy", "", "Http proxy to pull image")
+	flagSet.StringVar(&cfg.User, "user", "", "user[:password] Registry user and password")
 	flagSet.BoolVar(&cfg.PrepareImage, "pull-images", false, "If this flag set, we will just pull container images")
 	flagSet.StringSliceVar(&rePullImages, "repull-images", []string{}, "Images d2p-migrator will actually pull")
 	flagSet.BoolVarP(&printVersion, "version", "v", false, "Print d2p-migrator version")
@@ -102,8 +104,14 @@ func runCmd() error {
 		return nil
 	}
 
+	// set proxy for image pull
 	if cfg.ImageProxy != "" {
 		ctrd.SetImageProxy(cfg.ImageProxy)
+	}
+
+	// set credential info for private registry
+	if cfg.User != "" {
+		ctrd.SetCredential(cfg.User)
 	}
 
 	rePullImageSet := make(map[string]struct{})
