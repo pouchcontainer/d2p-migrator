@@ -6,6 +6,7 @@ import (
 
 	"github.com/pouchcontainer/d2p-migrator/ctrd"
 	"github.com/pouchcontainer/d2p-migrator/docker"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -162,14 +163,12 @@ func (d *D2pMigrator) PrepareImages(ctx context.Context) error {
 	for _, c := range containers {
 		meta, err := d.dockerCli.ContainerInspect(c.ID)
 		if err != nil {
-			logrus.Errorf("failed to inspect container %s: %v", c.ID, err)
-			continue
+			return fmt.Errorf("failed to inspect container %s: %v", c.ID, err)
 		}
 
 		image, err := d.dockerCli.ImageInspect(meta.Image)
 		if err != nil {
-			logrus.Errorf("failed to inspect image %s: %v", meta.Image, err)
-			continue
+			return fmt.Errorf("failed to inspect image %s: %v", meta.Image, err)
 		}
 
 		var imageName string
@@ -178,8 +177,7 @@ func (d *D2pMigrator) PrepareImages(ctx context.Context) error {
 		} else if len(image.RepoDigests) > 0 {
 			imageName = image.RepoDigests[0]
 		} else {
-			logrus.Errorf("failed to get image %s: repoTags is empty", meta.Image)
-			continue
+			return fmt.Errorf("failed to get image %s: repoTags is empty", meta.Image)
 		}
 
 		// check image existence
@@ -191,8 +189,7 @@ func (d *D2pMigrator) PrepareImages(ctx context.Context) error {
 
 		logrus.Infof("Start pull image: %s", imageName)
 		if err := d.ctrdCli.PullImage(ctx, imageName, false); err != nil {
-			logrus.Errorf("failed to pull image %s: %v", imageName, err)
-			continue
+			return fmt.Errorf("failed to pull image %s: %v", imageName, err)
 		}
 		logrus.Infof("End pull image: %s", imageName)
 	}
