@@ -33,8 +33,10 @@ func ToVolume(vol *dockertypes.Volume) (*volumetypes.Volume, error) {
 			ModifyTimestamp:   &now,
 		},
 		Spec: &volumetypes.VolumeSpec{
-			Backend:  vol.Driver,
-			Extra:    map[string]string{},
+			Backend: vol.Driver,
+			Extra: map[string]string{
+				"mount": vol.Mountpoint,
+			},
 			Selector: make(volumetypes.Selector, 0),
 			VolumeConfig: &volumetypes.VolumeConfig{
 				Size: "",
