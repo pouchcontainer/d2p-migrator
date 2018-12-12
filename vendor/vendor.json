@@ -37,6 +37,19 @@
 			"versionExact": "1.0.0.rc1"
 		},
 		{
+			"checksumSHA1": "9jojjwtfAw/UAeKFhoSYnYIgyKI=",
+			"path": "github.com/alibaba/pouch/cri/annotations",
+			"revision": "7bac615666420b6018caaa22c20a4ac5e9ca332a",
+			"revisionTime": "2018-12-13T01:24:23Z",
+			"version": "1.0.1"
+		},
+		{
+			"checksumSHA1": "/qfRwiAMA57bMRYOqd/PAbV5y3A=",
+			"path": "github.com/alibaba/pouch/cri/apis/v1alpha2",
+			"revision": "401167e32da938934022c5987220aff748a3dd14",
+			"revisionTime": "2018-12-04T01:24:36Z"
+		},
+		{
 			"checksumSHA1": "7zeK/i6NR599txLHoT0Bzsjn+Yg=",
 			"path": "github.com/alibaba/pouch/pkg/bytefmt",
 			"revision": "7c5f6e76bc560e3be80ecfb32dc3ddbb850288c7",
@@ -705,10 +718,22 @@
 			"revisionTime": "2018-05-02T21:31:33Z"
 		},
 		{
+			"checksumSHA1": "mN5AxdMghViLNJmW23xy+DSu1J4=",
+			"path": "github.com/gogo/protobuf/gogoproto",
+			"revision": "07eab6a8298cf32fac45cceaac59424f98421bbc",
+			"revisionTime": "2018-11-16T12:34:45Z"
+		},
+		{
 			"checksumSHA1": "D801O79vbqb3Oj8ffY4xOnSg814=",
 			"path": "github.com/gogo/protobuf/proto",
 			"revision": "211a54c57504366b3bf4b490fb3c0a5f5b8d290b",
 			"revisionTime": "2018-11-04T16:40:17Z"
+		},
+		{
+			"checksumSHA1": "4R7X2wRYYOxdXsoXOEcyBoCakb8=",
+			"path": "github.com/gogo/protobuf/protoc-gen-gogo/descriptor",
+			"revision": "07eab6a8298cf32fac45cceaac59424f98421bbc",
+			"revisionTime": "2018-11-16T12:34:45Z"
 		},
 		{
 			"checksumSHA1": "HPVQZu059/Rfw2bAWM538bVTcUc=",

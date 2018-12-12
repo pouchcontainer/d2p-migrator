@@ -8,6 +8,7 @@ import (
 	"github.com/pouchcontainer/d2p-migrator/utils"
 
 	pouchtypes "github.com/alibaba/pouch/apis/types"
+	"github.com/alibaba/pouch/cri/annotations"
 	dockertypes "github.com/docker/engine-api/types"
 	containertypes "github.com/docker/engine-api/types/container"
 	networktypes "github.com/docker/engine-api/types/network"
@@ -85,8 +86,33 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*localtypes.Containe
 
 	// Config
 	config, err := toContainerConfig(meta.Config)
-	if err != nil {
+	if err != nil || config == nil {
+		if err == nil {
+			err = fmt.Errorf("got an empty ContainerConfig")
+		}
 		return nil, err
+	}
+
+	// check if the container is a sandbox
+	if SandboxNameRegex.Match([]byte(pouchMeta.Name)) {
+		config.Labels[PouchContainerTypeLabelKey] = PouchContainerTypeLabelSandbox
+	}
+
+	// check if the container is a container of sandbox
+	containerType, ok := config.Labels[DockerContainerTypeLabelKey]
+	if ok && containerType == PouchContainerTypeLabelContainer {
+		// completion CRI labels and annotaions for container of sandbox
+		config.Labels[PouchContainerTypeLabelKey] = PouchContainerTypeLabelContainer
+
+		if config.SpecAnnotation == nil {
+			config.SpecAnnotation = map[string]string{}
+			config.SpecAnnotation[annotations.ContainerType] = annotations.ContainerTypeContainer
+		}
+
+		if v, ok := config.Labels[SandboxIDLabelKey]; ok {
+			config.SpecAnnotation[annotations.SandboxName] = v
+			config.SpecAnnotation[annotations.SandboxID] = v
+		}
 	}
 	pouchMeta.Config = config
 
@@ -212,6 +238,11 @@ func toContainerConfig(config *containertypes.Config) (*pouchtypes.ContainerConf
 		volumes[vol] = struct{}{}
 	}
 	pouchConfig.Volumes = volumes
+
+	// initialize label if it is nil
+	if pouchConfig.Labels == nil {
+		pouchConfig.Labels = map[string]string{}
+	}
 
 	// QuotaID
 	if v, exists := pouchConfig.Labels["QuotaId"]; exists {
