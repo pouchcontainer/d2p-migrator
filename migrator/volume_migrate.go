@@ -24,10 +24,15 @@ func PrepareVolumes(homeDir string, volumes []*volumetypes.Volume, volumeRefs ma
 		return err
 	}
 
-	store, err := NewStore(path.Join(homeDir, "volume"))
+	store, err := newVolumeStore(path.Join(homeDir, "volume"))
 	if err != nil {
 		return err
 	}
+
+	// need to close the boltdb after created volumes,
+	// otherwise, pouchd cannot start because the volume
+	// store initialize failed
+	defer store.Shutdown()
 
 	// update volumes references
 	for _, vol := range volumes {
@@ -49,29 +54,17 @@ func PrepareVolumes(homeDir string, volumes []*volumetypes.Volume, volumeRefs ma
 		}
 	}
 
-	// now create volumes
-	if err := store.CreateVolumes(volumes); err != nil {
-		return fmt.Errorf("failed to create volumes: %v", err)
-	}
-
-	// need to close the boltdb after created volumes,
-	// otherwise, pouchd cannot start because the volume
-	// store initialize failed
-	if err := store.Shutdown(); err != nil {
-		logrus.Errorf("failed to close volume store: %v", err)
-	}
-
-	return nil
+	return store.CreateVolumes(volumes)
 }
 
-// Store is a store of volume
-type Store struct {
+// volumeStore is a store of volume
+type volumeStore struct {
 	baseDir string
 	store   *meta.Store
 }
 
-// NewStore initializes a boltdb store for volume store.
-func NewStore(baseDir string) (*Store, error) {
+// newVolumeStore initializes a boltdb store for volume store.
+func newVolumeStore(baseDir string) (*volumeStore, error) {
 	// prepare volume dir if not exist
 	if _, err := os.Stat(baseDir); err != nil && os.IsNotExist(err) {
 		if err := os.MkdirAll(baseDir, 0666); err != nil {
@@ -94,11 +87,11 @@ func NewStore(baseDir string) (*Store, error) {
 		return nil, fmt.Errorf("failed to initialize a new boltdb store: %v", err)
 	}
 
-	return &Store{baseDir: baseDir, store: boltStore}, nil
+	return &volumeStore{baseDir: baseDir, store: boltStore}, nil
 }
 
 // CreateVolumes put all volumes information to volume boltdb
-func (s *Store) CreateVolumes(volumes []*volumetypes.Volume) error {
+func (s *volumeStore) CreateVolumes(volumes []*volumetypes.Volume) error {
 	for _, vol := range volumes {
 		if err := s.store.Put(vol); err != nil {
 			return fmt.Errorf("failed to create volume %s: %v", vol.Name, err)
@@ -109,7 +102,7 @@ func (s *Store) CreateVolumes(volumes []*volumetypes.Volume) error {
 }
 
 // Shutdown close the store's boltdb
-func (s *Store) Shutdown() error {
+func (s *volumeStore) Shutdown() error {
 	return s.store.Shutdown()
 }
 
