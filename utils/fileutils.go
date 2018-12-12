@@ -34,3 +34,21 @@ func IsDirEmpty(dir string) (bool, error) {
 	}
 	return false, nil
 }
+
+// CopyFile copys src file to dest file
+func CopyFile(dst, src string, perm os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
+}

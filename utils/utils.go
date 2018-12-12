@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 // IfThenElse evaluates a condition, if true returns the first parameter,
@@ -99,4 +100,17 @@ func RemoveDuplicateElement(addrs []string) []string {
 		}
 	}
 	return result
+}
+
+// SliceTrimSpace delete empty item, like " ", "\t", "\n" from slice
+func SliceTrimSpace(input []string) []string {
+	output := []string{}
+	for _, item := range input {
+		str := strings.TrimSpace(item)
+		if str != "" {
+			output = append(output, str)
+		}
+	}
+
+	return output
 }

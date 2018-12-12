@@ -2,6 +2,7 @@ package types
 
 import (
 	pouchtypes "github.com/alibaba/pouch/apis/types"
+	runtime "github.com/alibaba/pouch/cri/apis/v1alpha2"
 )
 
 // Container represents the container's meta data.
@@ -100,4 +101,28 @@ type Container struct {
 	// Specify if the container is taken over by pouch,
 	// or just created by pouch
 	RootFSProvided bool
+}
+
+// SandboxMeta represents the sandbox's meta data.
+// copy from github.com/alibaba/pouch/cri/v1alpha2/cri_types.go
+type SandboxMeta struct {
+	// ID is the id of sandbox.
+	ID string
+
+	// Config is CRI sandbox config.
+	Config *runtime.PodSandboxConfig
+
+	// Runtime is the runtime of sandbox
+	Runtime string
+
+	// Runtime whether to enable lxcfs for a container
+	LxcfsEnabled bool
+
+	// NetNS is the sandbox's network namespace
+	NetNS string
+}
+
+// Key returns sandbox's id.
+func (meta *SandboxMeta) Key() string {
+	return meta.ID
 }
