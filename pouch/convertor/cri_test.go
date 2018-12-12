@@ -22,12 +22,6 @@ func TestToCRIMetaJSON(t *testing.T) {
 		Image: "sha256:da86e6ba6ca197bf6bc5e9d900febd906b133eaa4750e6bed647b0fbe50ed43e",
 		Config: &pouchtypes.ContainerConfig{
 			Hostname: "nginx",
-			SpecAnnotation: map[string]string{
-				"kubernetes.io/config.seen":                "2018-11-27T16:27:30.623885666+08:00",
-				"kubernetes.io/config.source":              "api",
-				"pod.beta1.sigma.ali/container-state-spec": "{\"states\":{\"nginx\":\"running\"}}",
-				"pod.beta1.sigma.ali/pod-spec-hash":        "1122abcd",
-			},
 			Labels: map[string]string{
 				"ali/test":                                            "123456",
 				"annotation.kubernetes.io/config.seen":                "2018-11-27T16:27:30.623885666+08:00",

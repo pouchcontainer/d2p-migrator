@@ -100,9 +100,10 @@ func (cm *coldMigrator) PreMigrate(ctx context.Context, dockerCli *docker.Docker
 
 	var (
 		// volumeRefs to count volume references
-		volumeRefs    = map[string]string{}
-		pouchHomeDir  = getPouchHomeDir(cm.dockerHomeDir)
-		containersDir = path.Join(pouchHomeDir, "containers")
+		volumeRefs        = map[string]string{}
+		pouchHomeDir      = getPouchHomeDir(cm.dockerHomeDir)
+		containersDir     = path.Join(pouchHomeDir, "containers")
+		sandboxContainers = []*localtypes.Container{}
 	)
 
 	for _, c := range containers {
@@ -120,6 +121,11 @@ func (cm *coldMigrator) PreMigrate(ctx context.Context, dockerCli *docker.Docker
 		pouchMeta, err := convertor.ToPouchContainerMeta(&meta)
 		if err != nil {
 			return err
+		}
+
+		// check if the container is sandbox container
+		if convertor.SandboxNameRegex.Match([]byte(pouchMeta.Name)) {
+			sandboxContainers = append(sandboxContainers, pouchMeta)
 		}
 
 		// count container volumes reference
@@ -152,6 +158,11 @@ func (cm *coldMigrator) PreMigrate(ctx context.Context, dockerCli *docker.Docker
 	// prepare volumes for volumes
 	if err := PrepareVolumes(pouchHomeDir, pouchVolumes, volumeRefs); err != nil {
 		return nil
+	}
+
+	// prepare CRI meta for sandbox
+	if err := GenerateSandboxMetaJSON(pouchHomeDir, sandboxContainers); err != nil {
+		return err
 	}
 
 	return nil

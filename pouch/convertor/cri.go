@@ -94,13 +94,27 @@ func toPodSandboxConfig(c *localtypes.Container) (*runtime.PodSandboxConfig, err
 	sandboxConfig.Metadata = meta
 
 	if c.Config != nil {
+		labelKeyType := []string{
+			PouchContainerTypeLabelKey,
+			DockerContainerTypeLabelKey,
+		}
+
 		sandboxConfig.Hostname = string(c.Config.Hostname)
 		sandboxConfig.Annotations = c.Config.SpecAnnotation
 
 		for k, v := range c.Config.Labels {
 			// filter annotation labels
-			if !strings.HasPrefix(k, "annotation.") && !utils.StringInSlice([]string{PouchContainerTypeLabelKey, DockerContainerTypeLabelKey}, k) {
+			if !strings.HasPrefix(k, "annotation.") && !utils.StringInSlice(labelKeyType, k) {
 				sandboxConfig.Labels[k] = v
+			}
+
+			// covert annotation label to annations
+			if strings.HasPrefix(k, "annotation.") {
+				if sandboxConfig.Annotations == nil {
+					sandboxConfig.Annotations = map[string]string{}
+				}
+
+				sandboxConfig.Annotations[strings.TrimPrefix(k, "annotation.")] = v
 			}
 		}
 	}
