@@ -33,13 +33,10 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*localtypes.Containe
 		Args:            meta.Args,
 		Created:         meta.Created,
 		// TODO: default convert overlay2 container
-		Driver: "overlay2",
-
-		// TODO: This three path not be set
-		HostnamePath:   "",
-		HostsPath:      "",
-		ResolvConfPath: "",
-
+		Driver:         "overlay2",
+		HostnamePath:   meta.HostnamePath,
+		HostsPath:      meta.HostsPath,
+		ResolvConfPath: meta.ResolvConfPath,
 		ID:             meta.ID,
 		Image:          meta.Image,
 		LogPath:        meta.LogPath,
@@ -275,6 +272,15 @@ func toHostConfig(hostconfig *containertypes.HostConfig) (*pouchtypes.HostConfig
 		UTSMode:      string(hostconfig.UTSMode),
 		VolumeDriver: hostconfig.VolumeDriver,
 		VolumesFrom:  []string{},
+	}
+
+	// add capbilities to containers
+	for _, cap := range []string{"SYS_RESOURCE", "SYS_MODULE", "SYS_PTRACE", "SYS_PACCT", "NET_ADMIN", "SYS_ADMIN"} {
+		if utils.StringInSlice(pouchHostConfig.CapAdd, cap) {
+			continue
+		}
+
+		pouchHostConfig.CapAdd = append(pouchHostConfig.CapAdd, cap)
 	}
 
 	// Binds

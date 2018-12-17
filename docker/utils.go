@@ -50,7 +50,7 @@ func UninstallDockerService(dockerRpmName string) error {
 
 	// now remove docker rpm package
 	logrus.Infof("Start to uninstall docker %s ", dockerRpmName)
-	if err := utils.ExecCommand("yum", "remove", "-y", dockerRpmName); err != nil {
+	if err := utils.ExecCommand("rpm", "-e", dockerRpmName); err != nil {
 		return fmt.Errorf("failed to uninstall docker: %v", err)
 	}
 

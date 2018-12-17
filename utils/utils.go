@@ -54,3 +54,49 @@ func StringInSlice(input []string, str string) bool {
 	exists, _ := Contains(result, str)
 	return exists
 }
+
+// StringSliceEqual compare two string slice, ignore the order.
+// we also should consider if there has duplicate items in slice.
+func StringSliceEqual(s1, s2 []string) bool {
+	if s1 == nil && s2 == nil {
+		return true
+	}
+	if s1 == nil || s2 == nil {
+		return false
+	}
+	if len(s1) != len(s2) {
+		return false
+	}
+	// mapKeys to remember keys that exist in s1
+	mapKeys := map[string]int{}
+	// first list all items in s1
+	for _, v := range s1 {
+		mapKeys[v]++
+	}
+	// second list all items in s2
+	for _, v := range s2 {
+		mapKeys[v]--
+		// we may get -1 in two cases:
+		// 1. the item exists in the s2, but not in the s1;
+		// 2. the item exists both in s1 and s2, but has different copies.
+		// Under the condition that the length of slices are equals,
+		// so we can quickly return false.
+		if mapKeys[v] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// RemoveDuplicateElement delete duplicate item from slice
+func RemoveDuplicateElement(addrs []string) []string {
+	result := make([]string, 0, len(addrs))
+	temp := map[string]struct{}{}
+	for _, item := range addrs {
+		if _, ok := temp[item]; !ok {
+			temp[item] = struct{}{}
+			result = append(result, item)
+		}
+	}
+	return result
+}
