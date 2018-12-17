@@ -19,7 +19,7 @@ var (
 
 // InstallPouchService install pouch rpm and wait the poucd to serve
 func InstallPouchService(pouchRpmPath string) error {
-	if err := utils.ExecCommand("yum", "install", "-y", pouchRpmPath); err != nil {
+	if err := utils.ExecCommand("rpm", "-Uvh", pouchRpmPath); err != nil {
 		logrus.Errorf("failed to install pouch: %v", err)
 		return err
 	}
