@@ -18,19 +18,19 @@ import (
 
 // Config of pouch-migrator
 type Config struct {
-	DockerRpmName string
-	PouchRpmPath  string
-	MigrateAll    bool
-	ImageProxy    string
-	LiveMigrate   bool
-	PrepareImage  bool
-	User          string
+	DockerRpmName     string
+	PouchRpmPath      string
+	MigrateAll        bool
+	ImageProxy        string
+	LiveMigrate       bool
+	PrepareImage      bool
+	ImageManifestOnly bool
+	User              string
 }
 
 var (
 	printVersion bool
 	cfg          = &Config{}
-	rePullImages []string
 )
 
 func main() {
@@ -80,7 +80,7 @@ func setupFlags(cmd *cobra.Command) {
 	flagSet.StringVar(&cfg.ImageProxy, "image-proxy", "", "Http proxy to pull image")
 	flagSet.StringVar(&cfg.User, "user", "", "user[:password] Registry user and password")
 	flagSet.BoolVar(&cfg.PrepareImage, "pull-images", false, "If this flag set, we will just pull container images")
-	flagSet.StringSliceVar(&rePullImages, "repull-images", []string{}, "Images d2p-migrator will actually pull")
+	flagSet.BoolVar(&cfg.ImageManifestOnly, "image-manifest-only", false, "Pull image manifest only or not")
 	flagSet.BoolVarP(&printVersion, "version", "v", false, "Print d2p-migrator version")
 }
 
@@ -114,17 +114,12 @@ func runCmd() error {
 		ctrd.SetCredential(cfg.User)
 	}
 
-	rePullImageSet := make(map[string]struct{})
-	for _, image := range rePullImages {
-		rePullImageSet[image] = struct{}{}
-	}
-
 	ctx := context.Background()
 	migratorCfg := migrator.Config{
-		Type:           "cold-migrate",
-		DockerRpmName:  cfg.DockerRpmName,
-		PouchRpmPath:   cfg.PouchRpmPath,
-		RePullImageSet: rePullImageSet,
+		Type:              "cold-migrate",
+		DockerRpmName:     cfg.DockerRpmName,
+		PouchRpmPath:      cfg.PouchRpmPath,
+		ImageManifestOnly: cfg.ImageManifestOnly,
 	}
 
 	if cfg.LiveMigrate {

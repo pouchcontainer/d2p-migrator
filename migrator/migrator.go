@@ -28,10 +28,8 @@ type Config struct {
 	// DockerHomeDir represents the docker service home dir, we also can
 	// get pouch service home dir by the DockerHomeDir
 	DockerHomeDir string
-	// RePullImages is a collection of imageRef which d2p-migrator
-	// will actually re-pull using pouchd. Otherwise, d2p-migrator
-	// just download the manifest file.
-	RePullImageSet map[string]struct{}
+	// d2p-migrator only download the image manifest file or not.
+	ImageManifestOnly bool
 }
 
 // D2pMigrator is the core component to do migrate.
@@ -85,7 +83,7 @@ func NewD2pMigrator(cfg Config) (*D2pMigrator, error) {
 	}
 
 	// create containerd client
-	ctrdCli, err := ctrd.NewCtrdClient(cfg.RePullImageSet)
+	ctrdCli, err := ctrd.NewCtrdClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get containerd client: %v", err)
 	}
@@ -188,7 +186,7 @@ func (d *D2pMigrator) PrepareImages(ctx context.Context) error {
 		}
 
 		logrus.Infof("Start pull image: %s", imageName)
-		if err := d.ctrdCli.PullImage(ctx, imageName, false); err != nil {
+		if err := d.ctrdCli.PullImage(ctx, imageName, d.config.ImageManifestOnly); err != nil {
 			return fmt.Errorf("failed to pull image %s: %v", imageName, err)
 		}
 		logrus.Infof("End pull image: %s", imageName)

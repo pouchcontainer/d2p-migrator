@@ -195,7 +195,7 @@ func (cm *coldMigrator) doPrepare(ctx context.Context, ctrdCli *ctrd.Client, met
 		logrus.Infof("image %s has been downloaded, skip pull image", img)
 	} else {
 		logrus.Infof("Start pull image: %s", img)
-		if err := ctrdCli.PullImage(ctx, img, true); err != nil {
+		if err := ctrdCli.PullImage(ctx, img, false); err != nil {
 			logrus.Errorf("failed to pull image %s: %v\n", img, err)
 			return err
 		}

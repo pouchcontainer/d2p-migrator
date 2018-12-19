@@ -95,13 +95,12 @@ func Cleanup(pid int) error {
 
 // Client is the wrapper of a containerd client.
 type Client struct {
-	client         *containerd.Client
-	lease          *containerd.Lease
-	RePullImageSet map[string]struct{}
+	client *containerd.Client
+	lease  *containerd.Lease
 }
 
 // NewCtrdClient create a client of containerd
-func NewCtrdClient(imageSet map[string]struct{}) (*Client, error) {
+func NewCtrdClient() (*Client, error) {
 	client, err := containerd.New(socketAddr, containerd.WithDefaultNamespace("default"))
 	if err != nil {
 		return nil, err
@@ -122,9 +121,8 @@ func NewCtrdClient(imageSet map[string]struct{}) (*Client, error) {
 	}
 
 	return &Client{
-		client:         client,
-		lease:          &lease,
-		RePullImageSet: imageSet,
+		client: client,
+		lease:  &lease,
 	}, nil
 }
 
@@ -218,7 +216,7 @@ func (cli *Client) GetImage(ctx context.Context, imageName string) (containerd.I
 
 // PullImage prepares all images using by docker containers,
 // that will be used to create new pouch container.
-func (cli *Client) PullImage(ctx context.Context, ref string, rePullAll bool) error {
+func (cli *Client) PullImage(ctx context.Context, ref string, manifestOnly bool) error {
 	var err error
 	newRef := image.AddDefaultRegistryIfMissing(ref, defaultRegistry, defaultNamespace)
 	namedRef, err := reference.Parse(newRef)
@@ -237,19 +235,11 @@ func (cli *Client) PullImage(ctx context.Context, ref string, rePullAll bool) er
 		containerd.WithResolver(resolver),
 	}
 
-	// d2p-migrator will actually download the layer data if includeLayer is true
-	includeLayer := false
-	if rePullAll {
-		includeLayer = true
-	} else if _, ok := cli.RePullImageSet[ref]; ok {
-		includeLayer = true
-	}
-
-	if includeLayer {
+	if manifestOnly {
+		err = image.PullManifest(ctx, cli.client, namedRef.String(), options...)
+	} else {
 		options = append(options, containerd.WithPullUnpack)
 		_, err = cli.client.Pull(ctx, namedRef.String(), options...)
-	} else {
-		err = image.PullManifest(ctx, cli.client, namedRef.String(), options...)
 	}
 
 	return err
