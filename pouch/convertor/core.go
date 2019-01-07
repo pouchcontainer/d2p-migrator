@@ -10,6 +10,7 @@ import (
 	pouchtypes "github.com/alibaba/pouch/apis/types"
 	"github.com/alibaba/pouch/cri/annotations"
 	dockertypes "github.com/docker/engine-api/types"
+	"github.com/docker/engine-api/types/blkiodev"
 	containertypes "github.com/docker/engine-api/types/container"
 	networktypes "github.com/docker/engine-api/types/network"
 	"github.com/docker/go-connections/nat"
@@ -285,7 +286,6 @@ func toHostConfig(hostconfig *containertypes.HostConfig) (*pouchtypes.HostConfig
 		NetworkMode: string(hostconfig.NetworkMode),
 		OomScoreAdj: int64(hostconfig.OomScoreAdj),
 		PidMode:     string(hostconfig.PidMode),
-		// LogConfig
 		// PortBinding
 		Privileged:      hostconfig.Privileged,
 		PublishAllPorts: hostconfig.PublishAllPorts,
@@ -302,7 +302,8 @@ func toHostConfig(hostconfig *containertypes.HostConfig) (*pouchtypes.HostConfig
 		Tmpfs:        hostconfig.Tmpfs,
 		UTSMode:      string(hostconfig.UTSMode),
 		VolumeDriver: hostconfig.VolumeDriver,
-		VolumesFrom:  []string{},
+		VolumesFrom:  nil,
+		Binds:        hostconfig.Binds,
 	}
 
 	// add capbilities to containers
@@ -312,13 +313,6 @@ func toHostConfig(hostconfig *containertypes.HostConfig) (*pouchtypes.HostConfig
 		}
 
 		pouchHostConfig.CapAdd = append(pouchHostConfig.CapAdd, cap)
-	}
-
-	// Binds
-	for _, bind := range hostconfig.Binds {
-		if strings.HasPrefix(bind, "/") {
-			pouchHostConfig.Binds = append(pouchHostConfig.Binds, bind)
-		}
 	}
 
 	// RestartPolicy
@@ -337,24 +331,70 @@ func toHostConfig(hostconfig *containertypes.HostConfig) (*pouchtypes.HostConfig
 }
 
 func toResources(resources containertypes.Resources) (pouchtypes.Resources, error) {
+	// BlkioWeightDevice
+	weightDevs, err := toWeightDevice(resources.BlkioWeightDevice)
+	if err != nil {
+		return pouchtypes.Resources{}, fmt.Errorf("failed to convert WeightDevices: %v", err)
+	}
+
+	// BlkioDeviceReadBps
+	// BlkioDeviceReadIOps
+	// BlkioDeviceWriteBps
+	// BlkioDeviceWriteIOps
+	pouchBlkDevs := [][]*pouchtypes.ThrottleDevice{}
+	for _, devs := range [][]*blkiodev.ThrottleDevice{
+		resources.BlkioDeviceReadBps,
+		resources.BlkioDeviceReadIOps,
+		resources.BlkioDeviceWriteBps,
+		resources.BlkioDeviceWriteIOps,
+	} {
+		convertBlkDevs, err := toThrottleDevices(devs)
+		if err != nil {
+			return pouchtypes.Resources{}, fmt.Errorf("failed to convert ThrottleDevices: %v", err)
+		}
+
+		pouchBlkDevs = append(pouchBlkDevs, convertBlkDevs)
+	}
+
+	// Devices
+	pouchDevices, err := toDevices(resources.Devices)
+	if err != nil {
+		return pouchtypes.Resources{}, fmt.Errorf("failed to convert Devices: %v", err)
+	}
+
+	// Ulimits
+	var ulimits []*pouchtypes.Ulimit
+	if resources.Ulimits != nil {
+		for _, u := range resources.Ulimits {
+			ulimit := &pouchtypes.Ulimit{
+				Hard: u.Hard,
+				Name: u.Name,
+				Soft: u.Soft,
+			}
+
+			ulimits = append(ulimits, ulimit)
+		}
+	}
+
 	pouchResources := pouchtypes.Resources{
-		// BlkioDeviceReadBps
-		// BlkioDeviceReadBps
-		// BlkioDeviceWriteBps
-		// BlkioDeviceWriteBps
-		BlkioWeight: resources.BlkioWeight,
-		//BlkioWeightDevice
-		CgroupParent: resources.CgroupParent,
-		CPUCount:     resources.CPUCount,
-		CPUPercent:   resources.CPUPercent,
-		CPUPeriod:    resources.CPUPeriod,
-		CPUQuota:     resources.CPUQuota,
+		BlkioDeviceReadBps:   pouchBlkDevs[0],
+		BlkioDeviceReadIOps:  pouchBlkDevs[1],
+		BlkioDeviceWriteBps:  pouchBlkDevs[2],
+		BlkioDeviceWriteIOps: pouchBlkDevs[3],
+		BlkioWeight:          resources.BlkioWeight,
+		BlkioWeightDevice:    weightDevs,
+		CgroupParent:         resources.CgroupParent,
+		CPUCount:             resources.CPUCount,
+		CPUPercent:           resources.CPUPercent,
+		CPUPeriod:            resources.CPUPeriod,
+		CPUQuota:             resources.CPUQuota,
 		// CPURealtimePeriod
 		// CPURealtimeRuntime
 		CPUShares:  resources.CPUShares,
 		CpusetCpus: resources.CpusetCpus,
 		CpusetMems: resources.CpusetMems,
 		// DeviceCgroupRules
+		Devices:            pouchDevices,
 		IOMaximumIOps:      resources.IOMaximumIOps,
 		IOMaximumBandwidth: resources.IOMaximumBandwidth,
 
@@ -373,27 +413,8 @@ func toResources(resources containertypes.Resources) (pouchtypes.Resources, erro
 		// NanoCpus
 		OomKillDisable: resources.OomKillDisable,
 		PidsLimit:      resources.PidsLimit,
+		Ulimits:        ulimits,
 	}
-
-	// Devices
-	pouchDevices, err := toDevices(resources.Devices)
-	if err != nil {
-		return pouchtypes.Resources{}, fmt.Errorf("failed to convert Devices: %v", err)
-	}
-	pouchResources.Devices = pouchDevices
-
-	// Ulimits
-	ulimits := []*pouchtypes.Ulimit{}
-	for _, u := range resources.Ulimits {
-		ulimit := &pouchtypes.Ulimit{
-			Hard: u.Hard,
-			Name: u.Name,
-			Soft: u.Soft,
-		}
-
-		ulimits = append(ulimits, ulimit)
-	}
-	pouchResources.Ulimits = ulimits
 
 	return pouchResources, nil
 }
@@ -524,6 +545,36 @@ func toPortMap(ports nat.PortMap) (pouchtypes.PortMap, error) {
 	}
 
 	return pouchPortMap, nil
+}
+
+func toThrottleDevices(devs []*blkiodev.ThrottleDevice) ([]*pouchtypes.ThrottleDevice, error) {
+	if devs == nil {
+		return nil, nil
+	}
+	throttleDevices := []*pouchtypes.ThrottleDevice{}
+	for _, dev := range devs {
+		throttleDevices = append(throttleDevices, &pouchtypes.ThrottleDevice{
+			Path: dev.Path,
+			Rate: dev.Rate,
+		})
+	}
+
+	return throttleDevices, nil
+}
+
+func toWeightDevice(devs []*blkiodev.WeightDevice) ([]*pouchtypes.WeightDevice, error) {
+	if devs == nil {
+		return nil, nil
+	}
+	weightDevices := []*pouchtypes.WeightDevice{}
+	for _, dev := range devs {
+		weightDevices = append(weightDevices, &pouchtypes.WeightDevice{
+			Path:   dev.Path,
+			Weight: dev.Weight,
+		})
+	}
+
+	return weightDevices, nil
 }
 
 func parseEnv(envs []string) (map[string]string, error) {
