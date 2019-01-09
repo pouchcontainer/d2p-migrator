@@ -41,7 +41,9 @@ func StartContainerd(homeDir string, debug bool) (int, error) {
 		os.RemoveAll(socketAddr)
 	}
 
-	containerdPath, err := exec.LookPath("containerd")
+	// notes: we use a containerd binary named 'd2p-containerd'
+	// to avoid the name conflict with the original containerd.
+	containerdPath, err := exec.LookPath("d2p-containerd")
 	if err != nil {
 		return -1, fmt.Errorf("failed to find containerd binary %v", err)
 	}
