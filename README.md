@@ -22,7 +22,7 @@ advantanges of containerd 1.0.0+ to manage containers and images. Migration
 containers from docker's management to pouchd must take both image and
 container into consideration. Here are the steps to accomplish a migration job.
 
-### Step 1 - Install containerd 1.0.3 independently
+### Step 1 - Install containerd 1.0.3 independently, rename it to `d2p-containerd`
 
 ### Step 2 - Pull Images via ctr
 
