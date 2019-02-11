@@ -6,6 +6,7 @@ import (
 
 	"github.com/pouchcontainer/d2p-migrator/ctrd"
 	"github.com/pouchcontainer/d2p-migrator/docker"
+	"github.com/pouchcontainer/d2p-migrator/hookplugins"
 
 	"github.com/sirupsen/logrus"
 )
@@ -30,15 +31,18 @@ type Config struct {
 	DockerHomeDir string
 	// d2p-migrator only download the image manifest file or not.
 	ImageManifestOnly bool
+	// ContainerPlugin is the container plugin for migration.
+	ContainerPlugin hookplugins.ContainerPlugin
 }
 
 // D2pMigrator is the core component to do migrate.
 type D2pMigrator struct {
-	config    Config
-	migrator  Migrator
-	dockerCli *docker.Dockerd
-	ctrdCli   *ctrd.Client
-	ctrdPid   int
+	config          Config
+	migrator        Migrator
+	dockerCli       *docker.Dockerd
+	ctrdCli         *ctrd.Client
+	ctrdPid         int
+	containerPlugin hookplugins.ContainerPlugin
 }
 
 // NewD2pMigrator create a migrator
@@ -71,11 +75,6 @@ func NewD2pMigrator(cfg Config) (*D2pMigrator, error) {
 	}
 	cfg.DockerHomeDir = info.DockerRootDir
 
-	migrator, err := migratorFactory[cfg.Type](cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create migrator: %v", err)
-	}
-
 	// start containerd for migrate
 	ctrdPid, err := ctrd.StartContainerd(getPouchHomeDir(cfg.DockerHomeDir), true)
 	if err != nil {
@@ -90,13 +89,33 @@ func NewD2pMigrator(cfg Config) (*D2pMigrator, error) {
 
 	d2pMigrator := &D2pMigrator{
 		config:    cfg,
-		migrator:  migrator,
 		dockerCli: dockerCli,
 		ctrdPid:   ctrdPid,
 		ctrdCli:   ctrdCli,
 	}
 
+	if err := d2pMigrator.loadPlugin(); err != nil {
+		return nil, fmt.Errorf("failed to load plugins: %v", err)
+	}
+	cfg.ContainerPlugin = d2pMigrator.containerPlugin
+
+	migrator, err := migratorFactory[cfg.Type](cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create migrator: %v", err)
+	}
+	d2pMigrator.migrator = migrator
+
 	return d2pMigrator, nil
+}
+
+func (d *D2pMigrator) loadPlugin() error {
+	var err error
+
+	if containerPlugin := hookplugins.GetContainerPlugin(); containerPlugin != nil {
+		d.containerPlugin = containerPlugin
+	}
+
+	return err
 }
 
 // initPouchEnv initialize environment for pouch,

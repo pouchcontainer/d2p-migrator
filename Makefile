@@ -29,6 +29,9 @@ linux:
 	@GOOS=linux go build -ldflags ${DEFAULT_LDFLAGS} -o bin/$(BINARY)
 
 .PHONY: build
-build: linux
+build: linux plugin
 
-
+.PHONY: plugin
+plugin: ## build hook plugin
+	@echo "build $@"
+	@./hack/module --add-plugin github.com/pouchcontainer/d2p-migrator/hookplugins/containerplugin
