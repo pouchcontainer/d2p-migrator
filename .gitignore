@@ -2,3 +2,4 @@ d2p-migrator
 .*.swp
 bin/
 .idea/
+hook_plugins_build.go

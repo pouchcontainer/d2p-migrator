@@ -8,12 +8,14 @@ import (
 
 	"github.com/pouchcontainer/d2p-migrator/ctrd"
 	"github.com/pouchcontainer/d2p-migrator/docker"
+	"github.com/pouchcontainer/d2p-migrator/hookplugins"
 	"github.com/pouchcontainer/d2p-migrator/pouch"
 	"github.com/pouchcontainer/d2p-migrator/pouch/convertor"
 	localtypes "github.com/pouchcontainer/d2p-migrator/pouch/types"
 
 	pouchtypes "github.com/alibaba/pouch/apis/types"
 	"github.com/containerd/containerd/errdefs"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -28,13 +30,16 @@ type liveMigrator struct {
 	dockerHomeDir string
 	// store all containers info
 	allContainers map[string]bool
+	// containerPlugin is the container plugin for migration.
+	containerPlugin hookplugins.ContainerPlugin
 }
 
 // NewLiveMigrator creates a migrator tool instance.
 func NewLiveMigrator(cfg Config) (Migrator, error) {
 	migrator := &liveMigrator{
-		dockerHomeDir: cfg.DockerHomeDir,
-		allContainers: map[string]bool{},
+		dockerHomeDir:   cfg.DockerHomeDir,
+		allContainers:   map[string]bool{},
+		containerPlugin: cfg.ContainerPlugin,
 	}
 
 	return migrator, nil
@@ -84,6 +89,13 @@ func (lm *liveMigrator) PreMigrate(ctx context.Context, dockerCli *docker.Docker
 		pouchMeta, err := convertor.ToPouchContainerMeta(&meta)
 		if err != nil {
 			return err
+		}
+
+		// call container plugin after convert container meta json.
+		if lm.containerPlugin != nil {
+			if err := lm.containerPlugin.PostConvert(lm.dockerHomeDir, pouchMeta); err != nil {
+				return errors.Wrapf(err, "failed to call PostConvert plugin")
+			}
 		}
 
 		// check if the container is sandbox container

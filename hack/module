@@ -1,0 +1,76 @@
+#!/bin/bash
+
+function hook_plugins_module() {
+    # generate "hook_plugins_build.go" file
+    if [[ ! -f ${hook_plugins_build} ]]; then
+    cat << END > ${hook_plugins_build}
+// +build linux
+
+// The file is automatically generated, DON'T EDIT.
+
+package main
+
+END
+    fi
+
+    grep -q $1 ${hook_plugins_build}
+    if [[ $? -ne "0" ]]; then
+        echo "import _ \"$1\"" >> ${hook_plugins_build}
+    fi
+}
+
+function help_info() {
+echo "usage:"
+echo "     module [options]"
+echo ""
+echo "options:"
+echo "     --help, -h          Print help information"
+echo "     --add-plugin      Add a hook plugin to compile"
+echo "     --clean             Remove temporary codes, the 'build.go'"
+echo ""
+exit 0
+
+}
+
+GETOPTOUT=`getopt -o h --long help,clean,add-plugin: -- "$@"`
+
+clean=
+add_plugin=
+hook_plugins_build=hook_plugins_build.go
+
+# Note the quotes around `$GETOPTOUT': should delete the quotes
+ eval set -- $GETOPTOUT
+ while [ -n "$1" ]
+ do
+ case "$1" in
+     -h | --help )
+         help_info
+         exit 0
+         shift
+         ;;
+     --clean)
+         clean="true"
+         shift
+         ;;
+     --add-plugin)
+         add_plugin="$2"
+         shift 2
+         ;;
+     --)
+         shift
+         break
+         ;;
+      *)
+         echo "unknown parameters:"$1""
+         break
+         ;;
+ esac
+ done
+
+if  [[ "x$clean" == "xtrue" ]]; then
+    rm -f ${hook_plugins_build}
+fi
+
+if [[ "x$add_plugin" != "x" ]]; then
+    hook_plugins_module $add_plugin
+fi
