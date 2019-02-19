@@ -3,6 +3,7 @@ package convertor
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	localtypes "github.com/pouchcontainer/d2p-migrator/pouch/types"
 	"github.com/pouchcontainer/d2p-migrator/utils"
@@ -33,7 +34,7 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*localtypes.Containe
 		// Node
 		AppArmorProfile: meta.AppArmorProfile,
 		Args:            meta.Args,
-		Created:         meta.Created,
+		Created:         convertTime(meta.Created),
 		// TODO: default convert overlay2 container
 		Driver:         "overlay2",
 		HostnamePath:   meta.HostnamePath,
@@ -75,13 +76,13 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*localtypes.Containe
 		Dead:       meta.State.Dead,
 		Error:      meta.State.Error,
 		ExitCode:   int64(meta.State.ExitCode),
-		FinishedAt: meta.State.FinishedAt,
+		FinishedAt: convertTime(meta.State.FinishedAt),
 		OOMKilled:  false,
 		Paused:     meta.State.Paused,
 		Pid:        int64(meta.State.Pid),
 		Restarting: false,
 		Running:    meta.State.Running,
-		StartedAt:  meta.State.StartedAt,
+		StartedAt:  convertTime(meta.State.StartedAt),
 		Status:     toContainerStatus(meta.State.Status),
 	}
 
@@ -589,4 +590,15 @@ func parseEnv(envs []string) (map[string]string, error) {
 	}
 
 	return result, nil
+}
+
+// convertTime convert time from Local to UTC. Because in docker time is parsed as Local, in pouch time
+// is parsed as UTC
+func convertTime(t string) string {
+	n, err := time.Parse(time.RFC3339Nano, t)
+	if err != nil {
+		return t
+	}
+
+	return n.UTC().Format(time.RFC3339Nano)
 }
