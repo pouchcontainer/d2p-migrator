@@ -234,7 +234,7 @@ func TestToPouchContainerMeta(t *testing.T) {
 				"/home/admin/logs": struct{}{},
 			},
 		},
-		Created: "2018-12-18T21:36:18.054277464+08:00",
+		Created: "2018-12-18T13:36:18.054277464Z",
 		Driver:  "overlay2",
 		ExecIds: "",
 		Snapshotter: &pouchtypes.SnapshotterData{
@@ -417,3 +417,26 @@ func TestToPouchContainerMeta(t *testing.T) {
 }
 
 func int64Ptr(i int) *int64 { u := int64(i); return &u }
+
+func TestConvertTime(t *testing.T) {
+	tests := []struct {
+		srcTime string
+		expect  string
+	}{
+		{
+			srcTime: "2019-02-19T14:51:10.853959248+08:00",
+			expect:  "2019-02-19T06:51:10.853959248Z",
+		},
+		{
+			srcTime: "2019-02-19T13:51:10.853959248Z",
+			expect:  "2019-02-19T13:51:10.853959248Z",
+		},
+	}
+
+	for _, tt := range tests {
+		result := convertTime(tt.srcTime)
+		if result != tt.expect {
+			t.Errorf("failed to convert docker time to pouch time, expect %s, but %s", tt.expect, result)
+		}
+	}
+}
