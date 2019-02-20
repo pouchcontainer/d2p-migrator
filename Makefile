@@ -24,12 +24,13 @@ lint:
 	@golint $(PKGS)
 
 .PHONY: linux
-linux:
+linux: plugin
 	@mkdir -p bin
 	@GOOS=linux go build -ldflags ${DEFAULT_LDFLAGS} -o bin/$(BINARY)
+	@./hack/module --clean
 
 .PHONY: build
-build: linux plugin
+build: linux
 
 .PHONY: plugin
 plugin: ## build hook plugin

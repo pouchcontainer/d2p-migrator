@@ -20,17 +20,59 @@ END
 }
 
 function help_info() {
-echo "usage:"
-echo "     module [options]"
-echo ""
-echo "options:"
-echo "     --help, -h          Print help information"
-echo "     --add-plugin      Add a hook plugin to compile"
-echo "     --clean             Remove temporary codes, the 'build.go'"
-echo ""
-exit 0
-
+    echo "usage:"
+    echo "     module [options]"
+    echo ""
+    echo "options:"
+    echo "     --help, -h       Print help information"
+    echo "     --add-plugin     Add a hook plugin to compile"
+    echo "     --clean          Remove temporary codes, the 'build.go'"
+    echo ""
 }
+
+function get_os() {
+    local machine=
+    local unameOut="$(uname -s)"
+    case "${unameOut}" in
+        Linux*)     machine=Linux;;
+        Darwin*)    machine=Mac;;
+        CYGWIN*)    machine=Cygwin;;
+        MINGW*)     machine=MinGw;;
+        *)          machine="UNKNOWN:${unameOut}"
+    esac
+    echo $machine
+}
+
+function check_getopt() {
+    getopt --test
+    if [ "$?" == "4" ];then
+        return 0
+    fi
+
+    local os_machine=$(get_os)
+    case "${os_machine}" in
+        Linux)
+            echo "Please install getopt first"
+            return 1
+            ;;
+        Mac)
+            which -s brew
+            if [[ $? != 0 ]];then
+                echo '"Please install brew for Mac: ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"'
+            fi
+            echo ""Please install gnu-getopt for Mac: brew install gnu-getopt""
+            return 1
+            ;;
+        *)
+            echo "not supported os: ${os_machine}"
+            return 1
+    esac
+}
+
+check_getopt
+if [ $? != 0 ]; then
+    exit 1
+fi
 
 GETOPTOUT=`getopt -o h --long help,clean,add-plugin: -- "$@"`
 
