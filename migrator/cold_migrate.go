@@ -195,10 +195,19 @@ func (cm *coldMigrator) getOverlayFsDir(ctx context.Context, ctrdCli *ctrd.Clien
 // doPrepare prepares image and snapshot by using old container info.
 func (cm *coldMigrator) doPrepare(ctx context.Context, ctrdCli *ctrd.Client, meta *localtypes.Container) error {
 	// check image existence
-	img := meta.Config.Image
+	var (
+		snapshotter = "overlayfs"
+		img         = meta.Config.Image
+	)
+
 	_, imageExist := cm.images[img]
 	if !imageExist {
 		cm.images[img] = struct{}{}
+	}
+
+	// set snapshotter
+	if meta.Driver == "overlay" {
+		snapshotter = "overlay1fs"
 	}
 
 	// Pull image
@@ -206,7 +215,7 @@ func (cm *coldMigrator) doPrepare(ctx context.Context, ctrdCli *ctrd.Client, met
 		logrus.Infof("image %s has been downloaded, skip pull image", img)
 	} else {
 		logrus.Infof("Start pull image: %s", img)
-		if err := ctrdCli.PullImage(ctx, img, false); err != nil {
+		if err := ctrdCli.PullImage(ctx, img, snapshotter, false); err != nil {
 			logrus.Errorf("failed to pull image %s: %v\n", img, err)
 			return err
 		}

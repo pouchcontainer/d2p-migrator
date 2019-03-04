@@ -36,7 +36,7 @@ func ToPouchContainerMeta(meta *dockertypes.ContainerJSON) (*localtypes.Containe
 		Args:            meta.Args,
 		Created:         convertTime(meta.Created),
 		// TODO: default convert overlay2 container
-		Driver:         "overlay2",
+		Driver:         meta.Driver,
 		HostnamePath:   meta.HostnamePath,
 		HostsPath:      meta.HostsPath,
 		ResolvConfPath: meta.ResolvConfPath,

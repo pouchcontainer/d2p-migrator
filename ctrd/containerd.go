@@ -218,7 +218,7 @@ func (cli *Client) GetImage(ctx context.Context, imageName string) (containerd.I
 
 // PullImage prepares all images using by docker containers,
 // that will be used to create new pouch container.
-func (cli *Client) PullImage(ctx context.Context, ref string, manifestOnly bool) error {
+func (cli *Client) PullImage(ctx context.Context, ref, snapshotter string, manifestOnly bool) error {
 	var err error
 	newRef := image.AddDefaultRegistryIfMissing(ref, defaultRegistry, defaultNamespace)
 	namedRef, err := reference.Parse(newRef)
@@ -235,6 +235,7 @@ func (cli *Client) PullImage(ctx context.Context, ref string, manifestOnly bool)
 	options := []containerd.RemoteOpt{
 		containerd.WithSchema1Conversion,
 		containerd.WithResolver(resolver),
+		containerd.WithPullSnapshotter(snapshotter),
 	}
 
 	if manifestOnly {

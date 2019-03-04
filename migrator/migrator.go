@@ -178,9 +178,17 @@ func (d *D2pMigrator) PrepareImages(ctx context.Context) error {
 	logrus.Debugf("Get %d containers", len(containers))
 
 	for _, c := range containers {
+		snapshotter := "overlayfs"
 		meta, err := d.dockerCli.ContainerInspect(c.ID)
 		if err != nil {
 			return fmt.Errorf("failed to inspect container %s: %v", c.ID, err)
+		}
+
+		// specified which snapshotter the image should use
+		// overlay => overlay1fs
+		// overlay2 => overlayfs
+		if meta.Driver == "overlay" {
+			snapshotter = "overlay1fs"
 		}
 
 		image, err := d.dockerCli.ImageInspect(meta.Image)
@@ -205,7 +213,7 @@ func (d *D2pMigrator) PrepareImages(ctx context.Context) error {
 		}
 
 		logrus.Infof("Start pull image: %s", imageName)
-		if err := d.ctrdCli.PullImage(ctx, imageName, d.config.ImageManifestOnly); err != nil {
+		if err := d.ctrdCli.PullImage(ctx, imageName, snapshotter, d.config.ImageManifestOnly); err != nil {
 			return fmt.Errorf("failed to pull image %s: %v", imageName, err)
 		}
 		logrus.Infof("End pull image: %s", imageName)
